@@ -28,17 +28,17 @@ CONF_LOGLEVEL = 'info' # debug, info, warn
 # 본인에 맞게 수정하세요
 
 # 보일러 초기값
-INIT_TEMP = 22
+INIT_TEMP = 17 # 17도로 변경 @241119
 # 환풍기 초기속도 ['low', 'medium', 'high']
-DEFAULT_SPEED = 'medium'
+# DEFAULT_SPEED = 'medium' #주석처리 @241119 simon
 # 조명 / 플러그 갯수
-KOCOM_LIGHT_SIZE            = {'livingroom': 3, 'bedroom': 2, 'room1': 2, 'room2': 2, 'kitchen': 3}
+KOCOM_LIGHT_SIZE            = {'Livingroom': 3, 'Bedroom': 1, 'Kitchen': 2, 'room2': 0, 'room3': 0} # @241119 simon
 KOCOM_PLUG_SIZE             = {'livingroom': 2, 'bedroom': 2, 'room1': 2, 'room2': 2, 'kitchen': 2}
 
 # 방 패킷에 따른 방이름 (패킷1: 방이름1, 패킷2: 방이름2 . . .)
 # 월패드에서 장치를 작동하며 방이름(livingroom, bedroom, room1, room2, kitchen 등)을 확인하여 본인의 상황에 맞게 바꾸세요
 # 조명/콘센트와 난방의 방패킷이 달라서 두개로 나뉘어있습니다.
-KOCOM_ROOM                  = {'00': 'livingroom', '01': 'bedroom', '02': 'room2', '03': 'room1', '04': 'kitchen'}
+KOCOM_ROOM                  = {'00': 'Livingroom', '01': 'Bedroom', '02': 'Kitchen', '03': 'room2', '04': 'room3'} # @241119 simon
 KOCOM_ROOM_THERMOSTAT       = {'00': 'livingroom', '01': 'bedroom', '02': 'room1', '03': 'room2'}
 
 # TIME 변수(초)
@@ -94,7 +94,7 @@ if os.path.isfile(option_file):
 # HA MQTT Discovery
 HA_PREFIX = 'homeassistant'
 HA_SWITCH = 'switch'
-HA_LIGHT = 'light'
+HA_LIGHT = 'switch' # switch로 변경, 상태확인 위해 @241119 simon
 HA_CLIMATE = 'climate'
 HA_SENSOR = 'sensor'
 HA_FAN = 'fan'
