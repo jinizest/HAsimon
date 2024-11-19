@@ -333,6 +333,8 @@ class Kocom(rs485):
         self._t2 = threading.Thread(target=self.scan_list)
         self._t2.start()
 
+        threading.Thread(target=self.connection_monitor, daemon=True).start() #연결 상태를 지속 모니터링 및 스레드 재시작 @241119 simon
+
     def connection_lost(self):
         self._t1.join()
         self._t2.join()
@@ -359,15 +361,66 @@ class Kocom(rs485):
             return
         self.tick = time.time()
         if self.client._connect == False:
+            logger.warning("연결이 되어있지 않아 데이터를 보낼 수 없습니다.")
             return
         try:
             if self.d_type == 'serial':
-                return self.d_serial.write(bytearray.fromhex((data)))
+                result = self.d_serial.write(bytearray.fromhex((data)))
+                logger.debug(f"시리얼 데이터 전송: {data}, 결과: {result}")
             elif self.d_type == 'socket':
-                return self.d_serial.send(bytearray.fromhex((data)))
-        except:
-            logging.info('[Serial Write] Connection Error')
+                result = self.d_serial.send(bytearray.fromhex((data)))
+                logger.debug(f"소켓 데이터 전송: {data}, 결과: {result}")
+        except Exception as e:
+            logger.error(f"[Serial Write] 연결 오류: {str(e)}")
 
+    def send_command_with_retry(self, command):
+        retries = 0
+        while retries < MAX_RETRIES:
+            try:
+                result = self.write(command)
+                if result:
+                    logger.info(f"명령 전송 성공: {command}")
+                    return True
+                else:
+                    logger.warning(f"명령 전송 실패, 재시도 중: {command}")
+            except Exception as e:
+                logger.error(f"명령 전송 중 오류 발생: {str(e)}")
+            
+            retries += 1
+            if retries < MAX_RETRIES:
+                logger.info(f"{RETRY_DELAY}초 후 재시도...")
+                time.sleep(RETRY_DELAY)
+        
+        logger.error(f"최대 재시도 횟수 초과, 명령 전송 실패: {command}")
+        return False
+
+    def check_connection(self):
+    if not self.client._connect:
+        logger.warning("연결이 끊어졌습니다. 재연결을 시도합니다.")
+        self.reconnect()
+
+    def reconnect(self):
+        while not self.client._connect:
+            try:
+                if self.d_type == 'serial':
+                    self.d_serial = self.client.connect_serial(self.client._port_url)
+                elif self.d_type == 'socket':
+                    self.d_serial = self.client.connect_socket(self.client._mqtt['server'], self.client._mqtt['port'])
+                
+                if self.client._connect:
+                    logger.info("재연결 성공")
+                    return True
+            except Exception as e:
+                logger.error(f"재연결 실패: {str(e)}")
+            
+            logger.info(f"{RECONNECT_DELAY}초 후 재연결 시도...")
+            time.sleep(RECONNECT_DELAY)
+    
+    def connection_monitor(self):
+        while True:
+            self.check_connection()
+            time.sleep(60)  # 1분마다 연결 상태 확인
+                
     def connect_mqtt(self, server, name):
         mqtt_client = mqtt.Client()
         mqtt_client.on_message = self.on_message
