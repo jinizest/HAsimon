@@ -18,6 +18,11 @@ import configparser
 import paho.mqtt.client as mqtt
 from collections import OrderedDict
 
+# 로깅 설정 @241119 simon
+logging.basicConfig(level=logging.DEBUG, format='%(asctime)s - %(levelname)s - %(message)s')
+logger = logging.getLogger(__name__)
+
+
 # Version
 SW_VERSION = 'RS485 Compilation 1.0.3b'
 # Log Level
