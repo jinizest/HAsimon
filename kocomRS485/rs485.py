@@ -400,9 +400,9 @@ class Kocom(rs485):
         return False
 
     def check_connection(self):
-    if not self.client._connect:
-        logger.warning("연결이 끊어졌습니다. 재연결을 시도합니다.")
-        self.reconnect()
+        if not self.client._connect:
+            logger.warning("연결이 끊어졌습니다. 재연결을 시도합니다.")
+            self.reconnect()
 
     def reconnect(self):
         while not self.client._connect:
