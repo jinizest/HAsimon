@@ -293,7 +293,7 @@ class Kocom(rs485):
     def __init__(self, client, name, device, packet_len):
         self.client = client
         self._name = name
-        self.connected = False # 연결 재시도 @241120 by simon
+        self.connected = True # 연결 재시도 @241120 by simon True -> False -> True로 변경. 얘가 일정시간 단위로 조회 보내는얘
         self.reconnect_attempts = 0 # 연결 재시도 횟수 @241120 by simon
         self.lock = threading.Lock() # 스레드 안전성 @241120 by simon
         
