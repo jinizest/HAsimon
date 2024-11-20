@@ -18,6 +18,8 @@ import configparser
 import paho.mqtt.client as mqtt
 from collections import OrderedDict
 
+#english commit save~
+
 # 로깅 설정 @241119 simon
 logging.basicConfig(level=logging.DEBUG, format='%(asctime)s - %(levelname)s - %(message)s')
 logger = logging.getLogger(__name__)
