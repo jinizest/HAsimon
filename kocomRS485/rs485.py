@@ -49,6 +49,15 @@ KOCOM_ROOM_THERMOSTAT       = {'00': 'livingroom', '01': 'bedroom', '02': 'room1
 # TIME 변수(초)
 SCAN_INTERVAL = 300         # 월패드의 상태값 조회 간격
 SCANNING_INTERVAL = 0.8     # 상태값 조회 시 패킷전송 간격
+
+# RS485 연결 재시도 최대치 및 딜레이 @241120 by simon
+MAX_RECONNECT_ATTEMPTS = 10
+INITIAL_RECONNECT_DELAY = 5
+MAX_RECONNECT_DELAY = 60
+# 명령어 전송 재시도 @241120 by simon
+MAX_RETRIES = 5  # 최대 재시도 횟수
+RETRY_DELAY = 1  # 재시도 간 대기 시간(초)
+
 ####################### Start Here by Zooil ###########################
 option_file = '/data/options.json'                                                                                             
 if os.path.isfile(option_file):                                                                                                
@@ -284,8 +293,10 @@ class Kocom(rs485):
     def __init__(self, client, name, device, packet_len):
         self.client = client
         self._name = name
-        self.connected = True
-
+        self.connected = False # 연결 재시도 @241120 by simon
+        self.reconnect_attempts = 0 # 연결 재시도 횟수 @241120 by simon
+        self.lock = threading.Lock() # 스레드 안전성 @241120 by simon
+        
         self.ha_registry = False
         self.kocom_scan = True
         self.scan_packet_buf = []
@@ -396,16 +407,16 @@ class Kocom(rs485):
                 logger.info(f"{RETRY_DELAY}초 후 재시도...")
                 time.sleep(RETRY_DELAY)
         
-        logger.error(f"최대 재시도 횟수 초과, 명령 전송 실패: {command}")
+        logger.error(f"최대 재시도 횟수({MAX_RETRIES})를 초과했습니다. 명령 전송 실패: {command}")
         return False
-
+        
     def check_connection(self):
         if not self.client._connect:
             logger.warning("연결이 끊어졌습니다. 재연결을 시도합니다.")
             self.reconnect()
 
-    def reconnect(self):
-        while not self.client._connect:
+    def reconnect(self): # 연결 재시도 최대치 설정 @241120 by simon
+        while not self.connected and self.reconnect_attempts < MAX_RECONNECT_ATTEMPTS:
             try:
                 if self.d_type == 'serial':
                     self.d_serial = self.client.connect_serial(self.client._port_url)
@@ -414,12 +425,21 @@ class Kocom(rs485):
                 
                 if self.client._connect:
                     logger.info("재연결 성공")
+                    self.connected = True
+                    self.reconnect_attempts = 0
                     return True
+
             except Exception as e:
                 logger.error(f"재연결 실패: {str(e)}")
             
-            logger.info(f"{RECONNECT_DELAY}초 후 재연결 시도...")
-            time.sleep(RECONNECT_DELAY)
+            self.reconnect_attempts += 1 # 연결 횟수 카운트 및 최대치 초과시 중단 @241120 by simon
+            delay = min(INITIAL_RECONNECT_DELAY * (2 ** self.reconnect_attempts), MAX_RECONNECT_DELAY)
+            logger.info(f"{delay}초 후 재연결 시도... (시도 {self.reconnect_attempts}/{MAX_RECONNECT_ATTEMPTS})")
+            time.sleep(delay)
+        
+        if not self.connected:
+            logger.error("최대 재연결 시도 횟수를 초과했습니다. 연결을 중단합니다.")
+        return False
     
     def connection_monitor(self):
         while True:
