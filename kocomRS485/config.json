@@ -99,7 +99,7 @@
     "KOCOM_ROOM_THERMOSTAT": [
       "livingroom",
       "bedroom",
-      "kitchen",
+      "kitchen"
     ]
   },
   "schema": {
