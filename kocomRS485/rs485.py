@@ -441,11 +441,23 @@ class Kocom(rs485):
             logger.error("최대 재연결 시도 횟수를 초과했습니다. 연결을 중단합니다.")
         return False
     
-    def connection_monitor(self):
+    def connection_monitor(self): #250322 by simon serial socket 연결 확인해서, reconnect_serial을 통해 끊기면 재연결
         while True:
-            self.check_connection()
-            time.sleep(60)  # 1분마다 연결 상태 확인
-                
+            if not self.connected:
+                logger.debug('[ERROR] 서버 연결이 끊어져 재연결을 시도합니다.')
+                # 재연결 로직 추가
+                self.reconnect_serial()
+            time.sleep(60)  # 60초마다 확인
+    
+    def reconnect_serial(self): #250322 by simon serial socket 연결 확인해서, reconnect_serial을 통해 끊기면 재연결
+        self.d_serial.close()
+        self.d_serial = self.connect_serial(self.client._connect)
+        if self.d_serial:
+            self.connected = True
+            logger.debug('시리얼 포트 재연결 성공')
+        else:
+            logger.debug('시리얼 포트 재연결 실패')
+                    
     def connect_mqtt(self, server, name):
         mqtt_client = mqtt.Client()
         mqtt_client.on_message = self.on_message
