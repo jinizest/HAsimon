@@ -358,19 +358,26 @@ class Kocom(rs485):
             logger.debug('[ERROR] 서버 연결이 끊어져 kocom 클래스를 종료합니다.')
             return False
 
-    def read(self):
+    def read(self): #250322 error 처리 --> row_data가 None인지 확인하고, 그에 따라 처리
         if self.client._connect == False:
             return ''
         try:
             if self.d_type == 'serial':
                 if self.d_serial.readable():
-                    return self.d_serial.read()
+                    data = self.d_serial.read()
+                    if data is not None:
+                        return data
+                    else:
+                        logger.debug("No data received.")
+                        return ''
                 else:
+                    logger.debug("Serial port is not readable.")
                     return ''
             elif self.d_type == 'socket':
                 return self.d_serial.recv(1)
-        except:
-            logging.info('[Serial Read] Connection Error')
+        except Exception as e:
+            logger.error('[Serial Read] Connection Error: {}'.format(e))
+            return ''
 
     def write(self, data):
         if data == False:
@@ -450,13 +457,32 @@ class Kocom(rs485):
             time.sleep(60)  # 60초마다 확인
     
     def reconnect_serial(self): #250322 by simon serial socket 연결 확인해서, reconnect_serial을 통해 끊기면 재연결
-        self.d_serial.close()
-        self.d_serial = self.connect_serial(self.client._connect)
-        if self.d_serial:
-            self.connected = True
-            logger.debug('시리얼 포트 재연결 성공')
-        else:
-            logger.debug('시리얼 포트 재연결 실패')
+        attempts = 0
+        delay = INITIAL_RECONNECT_DELAY
+        while attempts < MAX_RECONNECT_ATTEMPTS:
+            try:
+                self.d_serial.close()  # 기존 연결 닫기
+                if self.d_type == 'serial':
+                    self.d_serial = self.client.connect_serial(self.client._port_url)[self.client._device]
+                elif self.d_type == 'socket':
+                    self.d_serial = self.client.connect_socket(self.client._mqtt['server'], self.client._mqtt['port'])
+                
+                if self.d_serial:
+                    logger.info("재연결 성공")
+                    self.connected = True
+                    return True
+    
+            except Exception as e:
+                logger.error(f"재연결 실패: {str(e)}")
+            
+            attempts += 1
+            delay = min(delay * 2, MAX_RECONNECT_DELAY)  # 지수적으로 대기 시간 증가
+            logger.info(f"{delay}초 후 재연결 시도... (시도 {attempts}/{MAX_RECONNECT_ATTEMPTS})")
+            time.sleep(delay)
+        
+        if not self.connected:
+            logger.error("최대 재연결 시도 횟수를 초과했습니다.")
+        return False
                     
     def connect_mqtt(self, server, name):
         mqtt_client = mqtt.Client()
@@ -863,29 +889,33 @@ class Kocom(rs485):
             self.d_mqtt.publish("{}/{}/{}/state".format(HA_PREFIX, HA_FAN, room), v_value)
             logger.info("[To HA]{}/{}/{}/state = {}".format(HA_PREFIX, HA_FAN, room, v_value))
 
-    def get_serial(self, packet_name, packet_len):
+    def get_serial(self, packet_name, packet_len): #250322 row_data is not None 조건문 추가로 에러 처리
         packet = ''
         start_flag = False
         while True:
             row_data = self.read()
-            hex_d = row_data.hex()
-            start_hex = ''
-            if packet_name == 'kocom':  start_hex = 'aa'
-            elif packet_name == 'grex_ventilator':  start_hex = 'd1'
-            elif packet_name == 'grex_controller':  start_hex = 'd0'
-            if hex_d == start_hex:
-                start_flag = True
-            if start_flag:
-                packet += hex_d
-
-            if len(packet) >= packet_len:
-                chksum = self.check_sum(packet)
-                if chksum[0]:
-                    self.tick = time.time()
-                    logger.debug("[From {}]{}".format(packet_name, packet))
-                    self.packet_parsing(packet)
-                packet = ''
-                start_flag = False
+            if row_data is not None:
+                hex_d = row_data.hex()
+                # 이후 코드
+                start_hex = ''
+                if packet_name == 'kocom':  start_hex = 'aa'
+                elif packet_name == 'grex_ventilator':  start_hex = 'd1'
+                elif packet_name == 'grex_controller':  start_hex = 'd0'
+                if hex_d == start_hex:
+                    start_flag = True
+                if start_flag:
+                    packet += hex_d
+    
+                if len(packet) >= packet_len:
+                    chksum = self.check_sum(packet)
+                    if chksum[0]:
+                        self.tick = time.time()
+                        logger.debug("[From {}]{}".format(packet_name, packet))
+                        self.packet_parsing(packet)
+                    packet = ''
+                    start_flag = False
+            else:
+                logger.debug("No data received.")
             if not self.connected:
                 logger.debug('[ERROR] 서버 연결이 끊어져 get_serial Thread를 종료합니다.')
                 break
