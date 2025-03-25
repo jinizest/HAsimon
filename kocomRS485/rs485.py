@@ -892,8 +892,23 @@ class Kocom(rs485):
     def get_serial(self, packet_name, packet_len): #250322 row_data is not None 조건문 추가로 에러 처리
         packet = ''
         start_flag = False
+        reconnect_attempts = 0
+        max_reconnect_attempts = 5  # 최대 재연결 시도 횟수
+        
         while True:
             row_data = self.read()
+            
+            if row_data is None:
+                logger.debug("No data received. Trying to reconnect...")
+                reconnect_attempts += 1
+                
+                if reconnect_attempts >= max_reconnect_attempts:
+                    logger.error(f"Failed to reconnect after {max_reconnect_attempts} attempts.")
+                    break  # 또는 다른 에러 처리
+                
+                self.reconnect()  # 재연결 함수 호출
+                continue
+                
             if row_data is not None:
                 hex_d = row_data.hex()
                 # 이후 코드
