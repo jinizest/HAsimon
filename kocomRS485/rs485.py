@@ -117,13 +117,17 @@ HA_FAN = 'fan'
 DEVICE_WALLPAD = 'wallpad'
 DEVICE_LIGHT = 'light'
 DEVICE_THERMOSTAT = 'thermostat'
+DEVICE_AC = 'ac'
 DEVICE_PLUG = 'plug'
 DEVICE_GAS = 'gas'
 DEVICE_ELEVATOR = 'elevator'
 DEVICE_FAN = 'fan'
 
 # KOCOM 코콤 패킷 기본정보
-KOCOM_DEVICE                = {'01': DEVICE_WALLPAD, '0e': DEVICE_LIGHT, '36': DEVICE_THERMOSTAT, '3b': DEVICE_PLUG, '44': DEVICE_ELEVATOR, '2c': DEVICE_GAS, '48': DEVICE_FAN}
+#보일러용
+# KOCOM_DEVICE                = {'01': DEVICE_WALLPAD, '0e': DEVICE_LIGHT, '36': DEVICE_THERMOSTAT, '3b': DEVICE_PLUG, '44': DEVICE_ELEVATOR, '2c': DEVICE_GAS, '48': DEVICE_FAN}
+#에어컨용
+KOCOM_DEVICE                = {'01': DEVICE_WALLPAD, '0e': DEVICE_LIGHT, '36': DEVICE_AC, '3b': DEVICE_PLUG, '44': DEVICE_ELEVATOR, '2c': DEVICE_GAS, '48': DEVICE_FAN}
 KOCOM_COMMAND               = {'3a': '조회', '00': '상태', '01': 'on', '02': 'off'}
 KOCOM_TYPE                  = {'30b': 'send', '30d': 'ack'}
 KOCOM_FAN_SPEED             = {'4': 'low', '8': 'medium', 'c': 'high', '0': 'off'}
@@ -309,6 +313,8 @@ class Kocom(rs485):
         self.wp_gas = self.client._wp_gas
         self.wp_elevator = self.client._wp_elevator
         self.wp_thermostat = self.client._wp_thermostat
+        self.wp_ac = True  # 활성화 여부, 필요시 옵션에 따라 처리
+        
         for d_name in KOCOM_DEVICE.values():
             if d_name == DEVICE_ELEVATOR or d_name == DEVICE_GAS:
                 self.wp_list[d_name] = {}
@@ -326,6 +332,15 @@ class Kocom(rs485):
                     self.wp_list[d_name][r_name]['mode'] = {'state': 'off', 'set': 'off', 'last': 'state', 'count': 0}
                     self.wp_list[d_name][r_name]['current_temp'] = {'state': 0, 'set': 0, 'last': 'state', 'count': 0}
                     self.wp_list[d_name][r_name]['target_temp'] = {'state': INIT_TEMP, 'set': INIT_TEMP, 'last': 'state', 'count': 0}
+            #250518_simon_ac 추가
+            elif d_name == DEVICE_AC:
+                self.wp_list[d_name] = {}
+                for r_name in KOCOM_ROOM_THERMOSTAT.values():
+                    self.wp_list[d_name][r_name] = {'scan': {'tick': 0, 'count': 0, 'last': 0}}
+                    self.wp_list[d_name][r_name]['mode'] = {'state': 'off', 'set': 'off', 'last': 'state', 'count': 0}
+                    self.wp_list[d_name][r_name]['current_temp'] = {'state': 0, 'set': 0, 'last': 'state', 'count': 0}
+                    self.wp_list[d_name][r_name]['target_temp'] = {'state': 25, 'set': 25, 'last': 'state', 'count': 0}
+            
             elif d_name == DEVICE_LIGHT or d_name == DEVICE_PLUG:
                 self.wp_list[d_name] = {}
                 for r_name in KOCOM_ROOM.values():
@@ -608,6 +623,27 @@ class Kocom(rs485):
                 self.send_to_homeassistant(device, room, ha_payload)
             except:
                 logger.info('[From HA]Error {} = {}'.format(topic, payload))
+        #250518_simon_ac 추가
+        elif device == HA_CLIMATE and 'ac' in topic[2]:
+            device = DEVICE_AC
+            room = topic[2]
+            try:
+                if command == 'ac_mode':
+                    self.wp_list[device][room]['mode']['set'] = payload
+                    self.wp_list[device][room]['mode']['last'] = 'set'
+                elif command == 'set_temp':
+                    self.wp_list[device][room]['target_temp']['set'] = int(float(payload))
+                    self.wp_list[device][room]['target_temp']['last'] = 'set'
+                ha_payload = {
+                    'ac_mode': self.wp_list[device][room]['mode']['set'],
+                    'set_temp': self.wp_list[device][room]['target_temp']['set'],
+                    'cur_temp': self.wp_list[device][room]['current_temp']['state']
+                }
+                logger.info('[From HA]{}/{}/set = [ac_mode={}, set_temp={}]'.format(device, room, self.wp_list[device][room]['mode']['set'], self.wp_list[device][room]['target_temp']['set']))
+                self.send_to_homeassistant(device, room, ha_payload)
+            except Exception as e:
+                logger.info('[From HA]Error {} = {}'.format(topic, payload))
+        
         elif device == HA_FAN:
             device = DEVICE_FAN
             room = topic[2]
@@ -856,6 +892,42 @@ class Kocom(rs485):
                         publish_list.append({ha_topic : ''})
                     else:
                         publish_list.append({ha_topic : json.dumps(ha_payload)})
+        #250518_simon_ac 추가
+        if self.wp_ac:
+            for room, r_list in self.wp_list[DEVICE_AC].items():
+                if type(r_list) == dict:
+                    ha_topic = '{}/{}/{}/config'.format(HA_PREFIX, HA_CLIMATE, room)
+                    ha_payload = {
+                        'name': '{}_{}_{}'.format(self._name, room, DEVICE_AC),
+                        'mode_cmd_t': '{}/{}/{}/ac_mode'.format(HA_PREFIX, HA_CLIMATE, room),
+                        'mode_stat_t': '{}/{}/{}/state'.format(HA_PREFIX, HA_CLIMATE, room),
+                        'mode_stat_tpl': '{{ value_json.ac_mode }}',
+                        'temp_cmd_t': '{}/{}/{}/set_temp'.format(HA_PREFIX, HA_CLIMATE, room),
+                        'temp_stat_t': '{}/{}/{}/state'.format(HA_PREFIX, HA_CLIMATE, room),
+                        'temp_stat_tpl': '{{ value_json.set_temp }}',
+                        'curr_temp_t': '{}/{}/{}/state'.format(HA_PREFIX, HA_CLIMATE, room),
+                        'curr_temp_tpl': '{{ value_json.cur_temp }}',
+                        'modes': ['off', 'cool'],
+                        'min_temp': 16,
+                        'max_temp': 30,
+                        'temp_step': 1,
+                        'uniq_id': '{}_{}_{}'.format(self._name, room, DEVICE_AC),
+                        'device': {
+                            'name': 'Kocom {}'.format(room),
+                            'ids': 'kocom_{}'.format(room),
+                            'mf': 'KOCOM',
+                            'mdl': 'Wallpad',
+                            'sw': SW_VERSION
+                        }
+                    }
+                    subscribe_list.append((ha_topic, 0))
+                    subscribe_list.append((ha_payload['mode_cmd_t'], 0))
+                    subscribe_list.append((ha_payload['temp_cmd_t'], 0))
+                    if remove:
+                        publish_list.append({ha_topic: ''})
+                    else:
+                        publish_list.append({ha_topic: json.dumps(ha_payload)})
+        
 
         if initial:
             self.d_mqtt.subscribe(subscribe_list)
@@ -873,6 +945,10 @@ class Kocom(rs485):
             self.d_mqtt.publish("{}/{}/{}/state".format(HA_PREFIX, HA_SWITCH, room), v_value)
             logger.info("[To HA]{}/{}/{}/state = {}".format(HA_PREFIX, HA_SWITCH, room, v_value))
         elif device == DEVICE_THERMOSTAT:
+            self.d_mqtt.publish("{}/{}/{}/state".format(HA_PREFIX, HA_CLIMATE, room), v_value)
+            logger.info("[To HA]{}/{}/{}/state = {}".format(HA_PREFIX, HA_CLIMATE, room, v_value))
+        #250518_simon_ac 추가
+        elif device == DEVICE_AC:
             self.d_mqtt.publish("{}/{}/{}/state".format(HA_PREFIX, HA_CLIMATE, room), v_value)
             logger.info("[To HA]{}/{}/{}/state = {}".format(HA_PREFIX, HA_CLIMATE, room, v_value))
         elif device == DEVICE_ELEVATOR:
@@ -984,6 +1060,9 @@ class Kocom(rs485):
                 v['value'] = self.parse_switch(v['src_device'], v['src_room'], p['value'])
             elif v['src_device'] == DEVICE_THERMOSTAT:
                 v['value'] = self.parse_thermostat(p['value'], self.wp_list[v['src_device']][v['src_room']]['target_temp']['state'])
+            #250518_simon_ac 추가
+            elif v['src_device'] == DEVICE_AC:
+                v['value'] = self.parse_ac(p['value'])
             elif v['src_device'] == DEVICE_WALLPAD and v['dst_device'] == DEVICE_ELEVATOR:
                 v['value'] = 'off'
             elif v['src_device'] == DEVICE_GAS:
@@ -1064,6 +1143,20 @@ class Kocom(rs485):
                             self.wp_list[device][room][sub]['count'] = 0
                     except:
                         logger.info('[From {}]Error SetListDevice {}/{}/{}/state = {}'.format(name, device, room, sub, v))
+            #250518_simon_ac 추가
+            elif device == DEVICE_AC:
+                for sub, v in value.items():
+                    try:
+                        if sub == 'ac_mode':
+                            self.wp_list[device][room][sub]['state'] = v
+                        elif sub == 'set_temp':
+                            self.wp_list[device][room]['target_temp']['state'] = int(v)
+                        elif sub == 'cur_temp':
+                            self.wp_list[device][room]['current_temp']['state'] = int(v)
+                        # set/last/count 관리 필요시 추가
+                    except Exception as e:
+                        logger.info('[From {}]Error SetListDevice {}/{}/{}/state = {}'.format(name, device, room, sub, v))
+        
         except:
             logger.info('[From {}]Error SetList {}/{} = {}'.format(name, device, room, value))
 
@@ -1183,6 +1276,20 @@ class Kocom(rs485):
                     p_value += '0000000000'
                 except:
                     logger.debug('[Make Packet] Error on DEVICE_THERMOSTAT')
+            #250518_simon_ac 추가
+            elif device == DEVICE_AC:
+                try:
+                    mode = self.wp_list[device][room]['mode']['set']
+                    target_temp = self.wp_list[device][room]['target_temp']['set']
+                    if mode == 'cool':
+                        p_value += '1100'
+                    elif mode == 'off':
+                        p_value += '1101'
+                    p_value += '{0:02x}'.format(int(float(target_temp)))
+                    p_value += '0000000000'
+                except:
+                    logger.debug('[Make Packet] Error on DEVICE_AC')
+            
             elif device == DEVICE_FAN:
                 try:
                     mode = self.wp_list[device][room]['mode']['set']
@@ -1234,6 +1341,16 @@ class Kocom(rs485):
             thermo['mode'] = 'off'
             thermo['target_temp'] = INIT_TEMP if not init_temp else int(init_temp)
         return thermo
+
+    #250518_simon_ac 추가
+    def parse_ac(self, value='0000000000000000', init_temp=24):
+        ac = {}
+        ac_mode = 'cool' if value[:4] == '1100' else 'off'
+        ac['ac_mode'] = ac_mode
+        ac['set_temp'] = int(value[4:6], 16) if ac_mode == 'cool' else init_temp
+        ac['cur_temp'] = int(value[8:10], 16)
+        return ac
+
 
 class Grex:
     def __init__(self, client, cont, vent):
