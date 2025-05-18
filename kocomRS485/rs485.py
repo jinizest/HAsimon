@@ -33,7 +33,7 @@ CONF_LOGLEVEL = 'info' # debug, info, warn
 # 본인에 맞게 수정하세요
 
 # 보일러 초기값
-INIT_TEMP = 17 # 17도로 변경 @241119
+INIT_TEMP = 27 #27도로 변경 @250518 여름대비 // # 17도로 변경 @241119
 # 환풍기 초기속도 ['low', 'medium', 'high']
 # DEFAULT_SPEED = 'medium' #주석처리 @241119 simon
 # 조명 / 플러그 갯수
@@ -45,6 +45,9 @@ KOCOM_PLUG_SIZE             = {'livingroom': 2, 'bedroom': 2, 'room1': 2, 'room2
 # 조명/콘센트와 난방의 방패킷이 달라서 두개로 나뉘어있습니다.
 KOCOM_ROOM                  = {'00': 'Livingroom', '01': 'Bedroom', '02': 'Kitchen', '03': 'room2', '04': 'room3'} # @241119 simon
 KOCOM_ROOM_THERMOSTAT       = {'00': 'livingroom', '01': 'bedroom', '02': 'room1', '03': 'room2'}
+#250518_simon_ac 추가
+KOCOM_ROOM_AC               = {'00': 'livingroom', '01': 'bedroom', '02': 'room1', '03': 'room2'}
+
 
 # TIME 변수(초)
 SCAN_INTERVAL = 300         # 월패드의 상태값 조회 간격
@@ -134,6 +137,8 @@ KOCOM_FAN_SPEED             = {'4': 'low', '8': 'medium', 'c': 'high', '0': 'off
 KOCOM_DEVICE_REV            = {v: k for k, v in KOCOM_DEVICE.items()}
 KOCOM_ROOM_REV              = {v: k for k, v in KOCOM_ROOM.items()}
 KOCOM_ROOM_THERMOSTAT_REV   = {v: k for k, v in KOCOM_ROOM_THERMOSTAT.items()}
+#250518_simon_ac 추가
+KOCOM_ROOM_AC_REV           = {v: k for k, v in KOCOM_ROOM_AC.items()}
 KOCOM_COMMAND_REV           = {v: k for k, v in KOCOM_COMMAND.items()}
 KOCOM_TYPE_REV              = {v: k for k, v in KOCOM_TYPE.items()}
 KOCOM_FAN_SPEED_REV         = {v: k for k, v in KOCOM_FAN_SPEED.items()}
@@ -335,7 +340,7 @@ class Kocom(rs485):
             #250518_simon_ac 추가
             elif d_name == DEVICE_AC:
                 self.wp_list[d_name] = {}
-                for r_name in KOCOM_ROOM_THERMOSTAT.values():
+                for r_name in KOCOM_ROOM_AC.values():
                     self.wp_list[d_name][r_name] = {'scan': {'tick': 0, 'count': 0, 'last': 0}}
                     self.wp_list[d_name][r_name]['mode'] = {'state': 'off', 'set': 'off', 'last': 'state', 'count': 0}
                     self.wp_list[d_name][r_name]['current_temp'] = {'state': 0, 'set': 0, 'last': 'state', 'count': 0}
@@ -1050,9 +1055,21 @@ class Kocom(rs485):
             v['type'] = KOCOM_TYPE.get(p['type'])
             v['command'] = KOCOM_COMMAND.get(p['command'])
             v['src_device'] = KOCOM_DEVICE.get(p['src_device'])
-            v['src_room'] = KOCOM_ROOM.get(p['src_room']) if v['src_device'] != DEVICE_THERMOSTAT else KOCOM_ROOM_THERMOSTAT.get(p['src_room'])
+            #250519_simon_ac 추가
+            if v['src_device'] == DEVICE_THERMOSTAT:
+                v['src_room'] = KOCOM_ROOM_THERMOSTAT.get(p['src_room'])
+            elif v['src_device'] == DEVICE_AC:
+                v['src_room'] = KOCOM_ROOM_AC.get(p['src_room'])
+            else:
+                v['src_room'] = KOCOM_ROOM.get(p['src_room'])
             v['dst_device'] = KOCOM_DEVICE.get(p['dst_device'])
-            v['dst_room'] = KOCOM_ROOM.get(p['dst_room']) if v['src_device'] != DEVICE_THERMOSTAT else KOCOM_ROOM_THERMOSTAT.get(p['dst_room'])
+            #250519_simon_ac 추가
+            if v['src_device'] == DEVICE_THERMOSTAT:
+                v['dst_room'] = KOCOM_ROOM_THERMOSTAT.get(p['dst_room'])
+            elif v['src_device'] == DEVICE_AC:
+                v['dst_room'] = KOCOM_ROOM_AC.get(p['dst_room'])
+            else:
+                v['dst_room'] = KOCOM_ROOM.get(p['dst_room'])
             v['value'] = p['value']
             if v['src_device'] == DEVICE_FAN:
                 v['value'] = self.parse_fan(p['value'])
@@ -1225,7 +1242,13 @@ class Kocom(rs485):
     def make_packet(self, device, room, cmd, target, value):
         p_header = 'aa5530bc00'
         p_device = KOCOM_DEVICE_REV.get(device)
-        p_room = KOCOM_ROOM_REV.get(room) if device != DEVICE_THERMOSTAT else  KOCOM_ROOM_THERMOSTAT_REV.get(room)
+        #250519_simon_ac 추가
+        if device == DEVICE_THERMOSTAT:
+            p_room = KOCOM_ROOM_THERMOSTAT_REV.get(room)
+        elif device == DEVICE_AC:
+            p_room = KOCOM_ROOM_AC_REV.get(room)
+        else:
+            p_room = KOCOM_ROOM_REV.get(room)
         p_dst = KOCOM_DEVICE_REV.get(DEVICE_WALLPAD) + KOCOM_ROOM_REV.get(DEVICE_WALLPAD)
         p_cmd = KOCOM_COMMAND_REV.get(cmd)
         p_value = ''
