@@ -136,7 +136,7 @@
       "thermostat": "bool",
       "fan": "bool",
       "gas": "bool",
-      "elevator": "bool"
+      "elevator": "bool",
       "ac": "bool"
     },
     "Advanced": {
