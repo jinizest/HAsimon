@@ -90,14 +90,17 @@ if os.path.isfile(option_file):
             KOCOM_ROOM[num_key] = i
             num += 1
         num = 0
-        KOCOM_ROOM_THERMOSTAT = {}
-        list_data = json_data['KOCOM_ROOM_THERMOSTAT']                                                                           
+        # KOCOM_ROOM_THERMOSTAT = {}
+        # list_data = json_data['KOCOM_ROOM_THERMOSTAT']      
+        KOCOM_ROOM_AC= {}
+        list_data = json_data['KOCOM_ROOM_AC']     
         for i in list_data:
             if num < 10:
                 num_key = "0%d" % (num)
             else:
                 num_key = "%d" % (num)
-            KOCOM_ROOM_THERMOSTAT[num_key] = i
+            # KOCOM_ROOM_THERMOSTAT[num_key] = i
+            KOCOM_ROOM_AC[num_key] = i
             num += 1         
 ####################### End Here by Zooil ########################### 
 ###############################################################################################################
