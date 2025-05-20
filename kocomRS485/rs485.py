@@ -1263,7 +1263,7 @@ class Kocom(rs485):
         #250519_simon_ac 추가
         # if device == DEVICE_THERMOSTAT:
         #     p_room = KOCOM_ROOM_THERMOSTAT_REV.get(room)
-        elif device == DEVICE_AC:
+        if device == DEVICE_AC:
             p_room = KOCOM_ROOM_AC_REV.get(room)
         else:
             p_room = KOCOM_ROOM_REV.get(room)
