@@ -46,7 +46,8 @@
       "thermostat": true,
       "fan": true,
       "gas": false,
-      "elevator": true
+      "elevator": true,
+      "ac": true
     },
     "Advanced": {
       "INIT_TEMP": 17,
