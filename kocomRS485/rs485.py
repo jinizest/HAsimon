@@ -44,7 +44,7 @@ KOCOM_PLUG_SIZE             = {'livingroom': 2, 'bedroom': 2, 'room1': 2, 'room2
 # 월패드에서 장치를 작동하며 방이름(livingroom, bedroom, room1, room2, kitchen 등)을 확인하여 본인의 상황에 맞게 바꾸세요
 # 조명/콘센트와 난방의 방패킷이 달라서 두개로 나뉘어있습니다.
 KOCOM_ROOM                  = {'00': 'Livingroom', '01': 'Bedroom', '02': 'Kitchen', '03': 'room2', '04': 'room3'} # @241119 simon
-KOCOM_ROOM_THERMOSTAT       = {'00': 'livingroom', '01': 'bedroom', '02': 'room1', '03': 'room2'}
+# KOCOM_ROOM_THERMOSTAT       = {'00': 'livingroom', '01': 'bedroom', '02': 'room1', '03': 'room2'}
 #250518_simon_ac 추가
 KOCOM_ROOM_AC               = {'00': 'livingroom', '01': 'bedroom', '02': 'room1', '03': 'room2'}
 
@@ -119,7 +119,7 @@ HA_FAN = 'fan'
 # DEVICE 명명
 DEVICE_WALLPAD = 'wallpad'
 DEVICE_LIGHT = 'light'
-DEVICE_THERMOSTAT = 'thermostat'
+# DEVICE_THERMOSTAT = 'thermostat'
 DEVICE_AC = 'ac'
 DEVICE_PLUG = 'plug'
 DEVICE_GAS = 'gas'
@@ -136,7 +136,7 @@ KOCOM_TYPE                  = {'30b': 'send', '30d': 'ack'}
 KOCOM_FAN_SPEED             = {'4': 'low', '8': 'medium', 'c': 'high', '0': 'off'}
 KOCOM_DEVICE_REV            = {v: k for k, v in KOCOM_DEVICE.items()}
 KOCOM_ROOM_REV              = {v: k for k, v in KOCOM_ROOM.items()}
-KOCOM_ROOM_THERMOSTAT_REV   = {v: k for k, v in KOCOM_ROOM_THERMOSTAT.items()}
+# KOCOM_ROOM_THERMOSTAT_REV   = {v: k for k, v in KOCOM_ROOM_THERMOSTAT.items()}
 #250518_simon_ac 추가
 KOCOM_ROOM_AC_REV           = {v: k for k, v in KOCOM_ROOM_AC.items()}
 KOCOM_COMMAND_REV           = {v: k for k, v in KOCOM_COMMAND.items()}
@@ -238,6 +238,10 @@ class rs485:
         return True if self._wp_list['thermostat'] == 'True' else False
 
     @property
+    def _wp_ac(self):
+        return True if self._wp_list['ac'] == 'True' else False
+
+    @property
     def _wp_plug(self):
         return True if self._wp_list['plug'] == 'True' else False
 
@@ -317,8 +321,8 @@ class Kocom(rs485):
         self.wp_plug = self.client._wp_plug
         self.wp_gas = self.client._wp_gas
         self.wp_elevator = self.client._wp_elevator
-        self.wp_thermostat = self.client._wp_thermostat
-        self.wp_ac = True  # 활성화 여부, 필요시 옵션에 따라 처리
+        # self.wp_thermostat = self.client._wp_thermostat
+        self.wp_ac = self.client._wp_ac
         
         for d_name in KOCOM_DEVICE.values():
             if d_name == DEVICE_ELEVATOR or d_name == DEVICE_GAS:
@@ -330,13 +334,13 @@ class Kocom(rs485):
                 self.wp_list[d_name][DEVICE_WALLPAD] = {'scan': {'tick': 0, 'count': 0, 'last': 0}}
                 self.wp_list[d_name][DEVICE_WALLPAD]['mode'] = {'state': 'off', 'set': 'off', 'last': 'state', 'count': 0}
                 self.wp_list[d_name][DEVICE_WALLPAD]['speed'] = {'state': 'off', 'set': 'off', 'last': 'state', 'count': 0}
-            elif d_name == DEVICE_THERMOSTAT:
-                self.wp_list[d_name] = {}
-                for r_name in KOCOM_ROOM_THERMOSTAT.values():
-                    self.wp_list[d_name][r_name] = {'scan': {'tick': 0, 'count': 0, 'last': 0}}
-                    self.wp_list[d_name][r_name]['mode'] = {'state': 'off', 'set': 'off', 'last': 'state', 'count': 0}
-                    self.wp_list[d_name][r_name]['current_temp'] = {'state': 0, 'set': 0, 'last': 'state', 'count': 0}
-                    self.wp_list[d_name][r_name]['target_temp'] = {'state': INIT_TEMP, 'set': INIT_TEMP, 'last': 'state', 'count': 0}
+            # elif d_name == DEVICE_THERMOSTAT:
+            #     self.wp_list[d_name] = {}
+            #     for r_name in KOCOM_ROOM_THERMOSTAT.values():
+            #         self.wp_list[d_name][r_name] = {'scan': {'tick': 0, 'count': 0, 'last': 0}}
+            #         self.wp_list[d_name][r_name]['mode'] = {'state': 'off', 'set': 'off', 'last': 'state', 'count': 0}
+            #         self.wp_list[d_name][r_name]['current_temp'] = {'state': 0, 'set': 0, 'last': 'state', 'count': 0}
+            #         self.wp_list[d_name][r_name]['target_temp'] = {'state': INIT_TEMP, 'set': INIT_TEMP, 'last': 'state', 'count': 0}
             #250518_simon_ac 추가
             elif d_name == DEVICE_AC:
                 self.wp_list[d_name] = {}
@@ -549,8 +553,11 @@ class Kocom(rs485):
                         self.wp_list[d_name][DEVICE_WALLPAD] = {'scan': {'tick': 0, 'count': 0, 'last': 0}}
                     elif d_name == DEVICE_FAN:
                         self.wp_list[d_name][DEVICE_WALLPAD] = {'scan': {'tick': 0, 'count': 0, 'last': 0}}
-                    elif d_name == DEVICE_THERMOSTAT:
-                        for r_name in KOCOM_ROOM_THERMOSTAT.values():
+                    # elif d_name == DEVICE_THERMOSTAT:
+                    #     for r_name in KOCOM_ROOM_THERMOSTAT.values():
+                    #         self.wp_list[d_name][r_name] = {'scan': {'tick': 0, 'count': 0, 'last': 0}}
+                    elif d_name == DEVICE_AC:
+                        for r_name in KOCOM_ROOM_AC.values():
                             self.wp_list[d_name][r_name] = {'scan': {'tick': 0, 'count': 0, 'last': 0}}
                     elif d_name == DEVICE_LIGHT or d_name == DEVICE_PLUG:
                         for r_name in KOCOM_ROOM.values():
@@ -629,7 +636,7 @@ class Kocom(rs485):
             except:
                 logger.info('[From HA]Error {} = {}'.format(topic, payload))
         #250518_simon_ac 추가
-        elif device == HA_CLIMATE and 'ac' in topic[2]:
+        elif device == HA_CLIMATE:
             device = DEVICE_AC
             room = topic[2]
             try:
@@ -861,42 +868,42 @@ class Kocom(rs485):
                                 publish_list.append({ha_topic : ''})
                             else:
                                 publish_list.append({ha_topic : json.dumps(ha_payload)})
-        if self.wp_thermostat:
-            for room, r_list in self.wp_list[DEVICE_THERMOSTAT].items():
-                if type(r_list) == dict:
-                    ha_topic = '{}/{}/{}/config'.format(HA_PREFIX, HA_CLIMATE, room)
-                    ha_payload = {
-                        'name': '{}_{}_{}'.format(self._name, room, DEVICE_THERMOSTAT),
-                        'mode_cmd_t': '{}/{}/{}/mode'.format(HA_PREFIX, HA_CLIMATE, room),
-                        'mode_stat_t': '{}/{}/{}/state'.format(HA_PREFIX, HA_CLIMATE, room),
-                        'mode_stat_tpl': '{{ value_json.mode }}',
-                        'temp_cmd_t': '{}/{}/{}/target_temp'.format(HA_PREFIX, HA_CLIMATE, room),
-                        'temp_stat_t': '{}/{}/{}/state'.format(HA_PREFIX, HA_CLIMATE, room),
-                        'temp_stat_tpl': '{{ value_json.target_temp }}',
-                        'curr_temp_t': '{}/{}/{}/state'.format(HA_PREFIX, HA_CLIMATE, room),
-                        'curr_temp_tpl': '{{ value_json.current_temp }}',
-                        'min_temp': 5,
-                        'max_temp': 35,
-                        'temp_step': 1,
-                        'modes': ['off', 'heat', 'fan_only'],
-                        'uniq_id': '{}_{}_{}'.format(self._name, room, DEVICE_THERMOSTAT),
-                        'device': {
-                            'name': 'Kocom {}'.format(room),
-                            'ids': 'kocom_{}'.format(room),
-                            'mf': 'KOCOM',
-                            'mdl': 'Wallpad',
-                            'sw': SW_VERSION
-                        }
-                    }
-                    subscribe_list.append((ha_topic, 0))
-                    subscribe_list.append((ha_payload['mode_cmd_t'], 0))
-                    #subscribe_list.append((ha_payload['mode_stat_t'], 0))
-                    subscribe_list.append((ha_payload['temp_cmd_t'], 0))
-                    #subscribe_list.append((ha_payload['temp_stat_t'], 0))
-                    if remove:
-                        publish_list.append({ha_topic : ''})
-                    else:
-                        publish_list.append({ha_topic : json.dumps(ha_payload)})
+        # if self.wp_thermostat:
+        #     for room, r_list in self.wp_list[DEVICE_THERMOSTAT].items():
+        #         if type(r_list) == dict:
+        #             ha_topic = '{}/{}/{}/config'.format(HA_PREFIX, HA_CLIMATE, room)
+        #             ha_payload = {
+        #                 'name': '{}_{}_{}'.format(self._name, room, DEVICE_THERMOSTAT),
+        #                 'mode_cmd_t': '{}/{}/{}/mode'.format(HA_PREFIX, HA_CLIMATE, room),
+        #                 'mode_stat_t': '{}/{}/{}/state'.format(HA_PREFIX, HA_CLIMATE, room),
+        #                 'mode_stat_tpl': '{{ value_json.mode }}',
+        #                 'temp_cmd_t': '{}/{}/{}/target_temp'.format(HA_PREFIX, HA_CLIMATE, room),
+        #                 'temp_stat_t': '{}/{}/{}/state'.format(HA_PREFIX, HA_CLIMATE, room),
+        #                 'temp_stat_tpl': '{{ value_json.target_temp }}',
+        #                 'curr_temp_t': '{}/{}/{}/state'.format(HA_PREFIX, HA_CLIMATE, room),
+        #                 'curr_temp_tpl': '{{ value_json.current_temp }}',
+        #                 'min_temp': 5,
+        #                 'max_temp': 35,
+        #                 'temp_step': 1,
+        #                 'modes': ['off', 'heat', 'fan_only'],
+        #                 'uniq_id': '{}_{}_{}'.format(self._name, room, DEVICE_THERMOSTAT),
+        #                 'device': {
+        #                     'name': 'Kocom {}'.format(room),
+        #                     'ids': 'kocom_{}'.format(room),
+        #                     'mf': 'KOCOM',
+        #                     'mdl': 'Wallpad',
+        #                     'sw': SW_VERSION
+        #                 }
+        #             }
+        #             subscribe_list.append((ha_topic, 0))
+        #             subscribe_list.append((ha_payload['mode_cmd_t'], 0))
+        #             #subscribe_list.append((ha_payload['mode_stat_t'], 0))
+        #             subscribe_list.append((ha_payload['temp_cmd_t'], 0))
+        #             #subscribe_list.append((ha_payload['temp_stat_t'], 0))
+        #             if remove:
+        #                 publish_list.append({ha_topic : ''})
+        #             else:
+        #                 publish_list.append({ha_topic : json.dumps(ha_payload)})
         #250518_simon_ac 추가
         if self.wp_ac:
             for room, r_list in self.wp_list[DEVICE_AC].items():
@@ -949,9 +956,9 @@ class Kocom(rs485):
         elif device == DEVICE_PLUG:
             self.d_mqtt.publish("{}/{}/{}/state".format(HA_PREFIX, HA_SWITCH, room), v_value)
             logger.info("[To HA]{}/{}/{}/state = {}".format(HA_PREFIX, HA_SWITCH, room, v_value))
-        elif device == DEVICE_THERMOSTAT:
-            self.d_mqtt.publish("{}/{}/{}/state".format(HA_PREFIX, HA_CLIMATE, room), v_value)
-            logger.info("[To HA]{}/{}/{}/state = {}".format(HA_PREFIX, HA_CLIMATE, room, v_value))
+        # elif device == DEVICE_THERMOSTAT:
+        #     self.d_mqtt.publish("{}/{}/{}/state".format(HA_PREFIX, HA_CLIMATE, room), v_value)
+        #     logger.info("[To HA]{}/{}/{}/state = {}".format(HA_PREFIX, HA_CLIMATE, room, v_value))
         #250518_simon_ac 추가
         elif device == DEVICE_AC:
             self.d_mqtt.publish("{}/{}/{}/state".format(HA_PREFIX, HA_CLIMATE, room), v_value)
@@ -1107,7 +1114,11 @@ class Kocom(rs485):
                 elif v['src_device'] == DEVICE_FAN or v['src_device'] == DEVICE_GAS:
                     self.set_list(v['src_device'], DEVICE_WALLPAD, v['value'])
                     self.send_to_homeassistant(v['src_device'], DEVICE_WALLPAD, v['value'])
-                elif v['src_device'] == DEVICE_THERMOSTAT or v['src_device'] == DEVICE_LIGHT or v['src_device'] == DEVICE_PLUG:
+                # elif v['src_device'] == DEVICE_THERMOSTAT or v['src_device'] == DEVICE_LIGHT or v['src_device'] == DEVICE_PLUG:
+                #     self.set_list(v['src_device'], v['src_room'], v['value'])
+                #     self.send_to_homeassistant(v['src_device'], v['src_room'], v['value'])
+                #250520_simon_ac 추가
+                elif v['src_device'] == DEVICE_AC or v['src_device'] == DEVICE_LIGHT or v['src_device'] == DEVICE_PLUG:
                     self.set_list(v['src_device'], v['src_room'], v['value'])
                     self.send_to_homeassistant(v['src_device'], v['src_room'], v['value'])
         except:
@@ -1147,19 +1158,19 @@ class Kocom(rs485):
                             self.wp_list[device][room][sub]['count'] = 0
                     except:
                         logger.info('[From {}]Error SetListDevice {}/{}/{}/state = {}'.format(name, device, room, sub, v))
-            elif device == DEVICE_THERMOSTAT:
-                for sub, v in value.items():
-                    try:
-                        if sub == 'mode':
-                            self.wp_list[device][room][sub]['state'] = v
-                        else:
-                            self.wp_list[device][room][sub]['state'] = int(float(v))
-                            self.wp_list[device][room]['mode']['state'] = 'heat'
-                        if (self.wp_list[device][room][sub]['last'] == 'set' or type(self.wp_list[device][room][sub]['last']) == float) and self.wp_list[device][room][sub]['set'] == self.wp_list[device][room][sub]['state']:
-                            self.wp_list[device][room][sub]['last'] = 'state'
-                            self.wp_list[device][room][sub]['count'] = 0
-                    except:
-                        logger.info('[From {}]Error SetListDevice {}/{}/{}/state = {}'.format(name, device, room, sub, v))
+            # elif device == DEVICE_THERMOSTAT:
+            #     for sub, v in value.items():
+            #         try:
+            #             if sub == 'mode':
+            #                 self.wp_list[device][room][sub]['state'] = v
+            #             else:
+            #                 self.wp_list[device][room][sub]['state'] = int(float(v))
+            #                 self.wp_list[device][room]['mode']['state'] = 'heat'
+            #             if (self.wp_list[device][room][sub]['last'] == 'set' or type(self.wp_list[device][room][sub]['last']) == float) and self.wp_list[device][room][sub]['set'] == self.wp_list[device][room][sub]['state']:
+            #                 self.wp_list[device][room][sub]['last'] = 'state'
+            #                 self.wp_list[device][room][sub]['count'] = 0
+            #         except:
+            #             logger.info('[From {}]Error SetListDevice {}/{}/{}/state = {}'.format(name, device, room, sub, v))
             #250518_simon_ac 추가
             elif device == DEVICE_AC:
                 for sub, v in value.items():
@@ -1184,10 +1195,14 @@ class Kocom(rs485):
                 if now - self.tick > KOCOM_INTERVAL / 1000:
                     try:
                         for device, d_list in self.wp_list.items():
-                            if type(d_list) == dict and ((device == DEVICE_ELEVATOR and self.wp_elevator) or (device == DEVICE_FAN and self.wp_fan) or (device == DEVICE_GAS and self.wp_gas) or (device == DEVICE_LIGHT and self.wp_light) or (device == DEVICE_PLUG and self.wp_plug) or (device == DEVICE_THERMOSTAT and self.wp_thermostat)):
+                            # if type(d_list) == dict and ((device == DEVICE_ELEVATOR and self.wp_elevator) or (device == DEVICE_FAN and self.wp_fan) or (device == DEVICE_GAS and self.wp_gas) or (device == DEVICE_LIGHT and self.wp_light) or (device == DEVICE_PLUG and self.wp_plug) or (device == DEVICE_THERMOSTAT and self.wp_thermostat)):
+                            #250520_simon_ac 추가
+                            if type(d_list) == dict and ((device == DEVICE_ELEVATOR and self.wp_elevator) or (device == DEVICE_FAN and self.wp_fan) or (device == DEVICE_GAS and self.wp_gas) or (device == DEVICE_LIGHT and self.wp_light) or (device == DEVICE_PLUG and self.wp_plug) or (device == DEVICE_AC and self.wp_ac)):
                                 for room, r_list in d_list.items():
                                     if type(r_list) == dict:
-                                        if 'scan' in r_list and type(r_list['scan']) == dict and now - r_list['scan']['tick'] > SCAN_INTERVAL and ((device == DEVICE_FAN and self.wp_fan) or (device == DEVICE_GAS and self.wp_gas) or (device == DEVICE_LIGHT and self.wp_light) or (device == DEVICE_PLUG and self.wp_plug) or (device == DEVICE_THERMOSTAT and self.wp_thermostat)):
+                                        # if 'scan' in r_list and type(r_list['scan']) == dict and now - r_list['scan']['tick'] > SCAN_INTERVAL and ((device == DEVICE_FAN and self.wp_fan) or (device == DEVICE_GAS and self.wp_gas) or (device == DEVICE_LIGHT and self.wp_light) or (device == DEVICE_PLUG and self.wp_plug) or (device == DEVICE_THERMOSTAT and self.wp_thermostat)):
+                                        #250520_simon_ac 추가
+                                        if 'scan' in r_list and type(r_list['scan']) == dict and now - r_list['scan']['tick'] > SCAN_INTERVAL and ((device == DEVICE_FAN and self.wp_fan) or (device == DEVICE_GAS and self.wp_gas) or (device == DEVICE_LIGHT and self.wp_light) or (device == DEVICE_PLUG and self.wp_plug) or (device == DEVICE_AC and self.wp_ac)):
                                             if now - r_list['scan']['last'] > 2:
                                                 r_list['scan']['count'] += 1
                                                 r_list['scan']['last'] = now
@@ -1243,8 +1258,8 @@ class Kocom(rs485):
         p_header = 'aa5530bc00'
         p_device = KOCOM_DEVICE_REV.get(device)
         #250519_simon_ac 추가
-        if device == DEVICE_THERMOSTAT:
-            p_room = KOCOM_ROOM_THERMOSTAT_REV.get(room)
+        # if device == DEVICE_THERMOSTAT:
+        #     p_room = KOCOM_ROOM_THERMOSTAT_REV.get(room)
         elif device == DEVICE_AC:
             p_room = KOCOM_ROOM_AC_REV.get(room)
         else:
@@ -1284,21 +1299,21 @@ class Kocom(rs485):
                             p_value += 'ff' if value == 'on' else str('00')
                 except:
                     logger.debug('[Make Packet] Error on DEVICE_LIGHT or DEVICE_PLUG')
-            elif device == DEVICE_THERMOSTAT:
-                try:
-                    mode = self.wp_list[device][room]['mode']['set']
-                    target_temp = self.wp_list[device][room]['target_temp']['set']
-                    if mode == 'heat':
-                        p_value += '1100'
-                    elif mode == 'off':
-                        # p_value += '0001'
-                        p_value += '0100'
-                    else:
-                        p_value += '1101'
-                    p_value += '{0:02x}'.format(int(float(target_temp)))
-                    p_value += '0000000000'
-                except:
-                    logger.debug('[Make Packet] Error on DEVICE_THERMOSTAT')
+            # elif device == DEVICE_THERMOSTAT:
+            #     try:
+            #         mode = self.wp_list[device][room]['mode']['set']
+            #         target_temp = self.wp_list[device][room]['target_temp']['set']
+            #         if mode == 'heat':
+            #             p_value += '1100'
+            #         elif mode == 'off':
+            #             # p_value += '0001'
+            #             p_value += '0100'
+            #         else:
+            #             p_value += '1101'
+            #         p_value += '{0:02x}'.format(int(float(target_temp)))
+            #         p_value += '0000000000'
+            #     except:
+            #         logger.debug('[Make Packet] Error on DEVICE_THERMOSTAT')
             #250518_simon_ac 추가
             elif device == DEVICE_AC:
                 try:
@@ -1324,7 +1339,7 @@ class Kocom(rs485):
                     p_value += KOCOM_FAN_SPEED_REV.get(speed)
                     p_value += '00000000000'
                 except:
-                    logger.debug('[Make Packet] Error on DEVICE_THERMOSTAT')
+                    logger.debug('[Make Packet] Error on DEVICE_FAN')
         if p_value != '':
             packet = p_header + p_device + p_room + p_dst + p_cmd + p_value
             chk_sum = self.check_sum(packet)[1]
@@ -1349,21 +1364,21 @@ class Kocom(rs485):
         switch[device + str('0')] = 'on' if on_count > 0 else 'off'
         return switch
 
-    def parse_thermostat(self, value='0000000000000000', init_temp=False):
-        thermo = {}
-        heat_mode = 'heat' if value[:2] == '11' else 'off'
-        away_mode = 'on' if value[2:4] == '01' else 'off'
-        thermo['current_temp'] = int(value[8:10], 16)
-        if heat_mode == 'heat' and away_mode == 'on':
-            thermo['mode'] = 'fan_only'
-            thermo['target_temp'] = INIT_TEMP if not init_temp else int(init_temp)
-        elif heat_mode == 'heat' and away_mode == 'off':
-            thermo['mode'] = 'heat'
-            thermo['target_temp'] = int(value[4:6], 16)
-        elif heat_mode == 'off':
-            thermo['mode'] = 'off'
-            thermo['target_temp'] = INIT_TEMP if not init_temp else int(init_temp)
-        return thermo
+    # def parse_thermostat(self, value='0000000000000000', init_temp=False):
+    #     thermo = {}
+    #     heat_mode = 'heat' if value[:2] == '11' else 'off'
+    #     away_mode = 'on' if value[2:4] == '01' else 'off'
+    #     thermo['current_temp'] = int(value[8:10], 16)
+    #     if heat_mode == 'heat' and away_mode == 'on':
+    #         thermo['mode'] = 'fan_only'
+    #         thermo['target_temp'] = INIT_TEMP if not init_temp else int(init_temp)
+    #     elif heat_mode == 'heat' and away_mode == 'off':
+    #         thermo['mode'] = 'heat'
+    #         thermo['target_temp'] = int(value[4:6], 16)
+    #     elif heat_mode == 'off':
+    #         thermo['mode'] = 'off'
+    #         thermo['target_temp'] = INIT_TEMP if not init_temp else int(init_temp)
+    #     return thermo
 
     #250518_simon_ac 추가
     def parse_ac(self, value='0000000000000000', init_temp=24):
