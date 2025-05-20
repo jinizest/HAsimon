@@ -97,7 +97,7 @@
       "bedroom",
       "kitchen"
     ],
-    "KOCOM_ROOM_AC": [
+    "KOCOM_ROOM_THERMOSTAT": [
       "livingroom",
       "bedroom",
       "kitchen"
@@ -161,7 +161,7 @@
     "KOCOM_ROOM": [
       "str?"
     ],
-    "KOCOM_ROOM_AC": [
+    "KOCOM_ROOM_THERMOSTAT": [
       "str?"
     ]
   }
