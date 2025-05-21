@@ -358,61 +358,43 @@ class Kocom(rs485):
             logger.debug('[ERROR] 서버 연결이 끊어져 kocom 클래스를 종료합니다.')
             return False
 
-    def read(self): #250521 str을 byte로 반환, #250322 error 처리 --> row_data가 None인지 확인하고, 그에 따라 처리
+    def read(self): #250322 error 처리 --> row_data가 None인지 확인하고, 그에 따라 처리
         if self.client._connect == False:
-            return b''
+            return ''
         try:
             if self.d_type == 'serial':
                 if self.d_serial.readable():
-                    self.d_serial.reset_input_buffer()  # 버퍼 초기화 추가
-                    data = self.d_serial.read(self.d_serial.in_waiting or 1)
-                return data if data else b''            
+                    data = self.d_serial.read()
+                    if data is not None:
+                        return data
+                    else:
+                        logger.debug("No data received.")
+                        return ''
+                else:
+                    logger.debug("Serial port is not readable.")
+                    return ''
             elif self.d_type == 'socket':
-                return self.d_serial.recv(1024) or b''
+                return self.d_serial.recv(1)
         except Exception as e:
-            logger.error(f'[Serial Read] Connection Error: {e}')
-            return b''  # 예외 발생 시 빈 bytes 반환
-                    
+            logger.error('[Serial Read] Connection Error: {}'.format(e))
+            return ''
 
-    
     def write(self, data):
-        if not data:
+        if data == False:
             return
-        with self.lock:  # 스레드 안전성 강화
-            retries = 0
-            while retries < MAX_RETRIES:
-                try:
-                    if self.client._connect is False:
-                        self.reconnect()  # 연결 상태 재확인
-                    
-                    self.tick = time.time()
-                    binary_data = bytearray.fromhex(data)
-                    
-                    # 하드웨어 플로우 컨트롤 설정
-                    if self.d_type == 'serial':
-                        self.d_serial.rts = True  # RTS 활성화
-                        self.d_serial.dtr = self.d_serial.dtr  # DTR 상태 유지
-                        written = self.d_serial.write(binary_data)
-                        self.d_serial.flush()  # 버퍼 강제 전송
-                        logger.debug(f"[Serial Write] 전송 성공: {data} ({written} bytes)")
-                        return True
-                    elif self.d_type == 'socket':
-                        sent = self.d_serial.send(binary_data)
-                        logger.debug(f"[Socket Send] 전송 성공: {data} ({sent} bytes)")
-                        return True
-                    
-                except (serial.SerialException, OSError) as e:
-                    logger.error(f"[전송 실패] 재시도 {retries+1}/{MAX_RETRIES}: {str(e)}")
-                    self.reconnect()  # 하드웨어 재연결
-                    retries += 1
-                    time.sleep(RETRY_DELAY * retries)  # 지수 백오프
-                    
-                except ValueError as ve:
-                    logger.error(f"헥스 변환 오류: {data} - {str(ve)}")
-                    return False
-                    
-            logger.critical(f"최대 재시도 횟수 초과: {data}")
-            return False
+        self.tick = time.time()
+        if self.client._connect == False:
+            logger.warning("연결이 되어있지 않아 데이터를 보낼 수 없습니다.")
+            return
+        try:
+            if self.d_type == 'serial':
+                result = self.d_serial.write(bytearray.fromhex((data)))
+                logger.debug(f"시리얼 데이터 전송: {data}, 결과: {result}")
+            elif self.d_type == 'socket':
+                result = self.d_serial.send(bytearray.fromhex((data)))
+                logger.debug(f"소켓 데이터 전송: {data}, 결과: {result}")
+        except Exception as e:
+            logger.error(f"[Serial Write] 연결 오류: {str(e)}")
 
     def send_command_with_retry(self, command):
         retries = 0
@@ -907,85 +889,51 @@ class Kocom(rs485):
             self.d_mqtt.publish("{}/{}/{}/state".format(HA_PREFIX, HA_FAN, room), v_value)
             logger.info("[To HA]{}/{}/{}/state = {}".format(HA_PREFIX, HA_FAN, room, v_value))
 
-    
-    def get_serial(self, packet_name, packet_len): #250521 바이트 데이터 처리 로직 추가 #250322 row_data is not None 조건문 추가로 에러 처리
+    def get_serial(self, packet_name, packet_len): #250322 row_data is not None 조건문 추가로 에러 처리
         packet = ''
         start_flag = False
-        reconnect_attempts = 0  # 재연결 시도 횟수 카운터
+        reconnect_attempts = 0
         max_reconnect_attempts = 5  # 최대 재연결 시도 횟수
         
         while True:
-            try:
-                # 데이터 수신
-                row_data = self.read()
+            row_data = self.read()
+            
+            if row_data is None:
+                logger.debug("No data received. Trying to reconnect...")
+                reconnect_attempts += 1
                 
-                # 데이터 타입 체크 및 예외 처리
-                if not isinstance(row_data, bytes):
-                    if row_data is None:
-                        logger.debug("수신 데이터 없음. 재연결 시도...")
-                        reconnect_attempts += 1
-                        
-                        if reconnect_attempts >= max_reconnect_attempts:
-                            logger.error(f"{max_reconnect_attempts}회 재연결 실패. 연결 중단")
-                            break
-                            
-                        self.reconnect()  # 재연결 메서드 호출
-                        time.sleep(1)  # 재시도 전 1초 대기
-                        continue
-                    else:
-                        logger.warning("잘못된 데이터 타입 수신: %s", type(row_data))
-                        continue
-    
-                # 헥사 변환 전 바이트 검증
-                try:
-                    hex_d = row_data.hex()
-                except AttributeError:
-                    logger.error("바이트 변환 실패: %s", row_data)
-                    continue
-    
-                # 패킷 시작 플래그 확인
+                if reconnect_attempts >= max_reconnect_attempts:
+                    logger.error(f"Failed to reconnect after {max_reconnect_attempts} attempts.")
+                    break  # 또는 다른 에러 처리
+                
+                self.reconnect()  # 재연결 함수 호출
+                continue
+                
+            if row_data is not None:
+                hex_d = row_data.hex()
+                # 이후 코드
                 start_hex = ''
-                if packet_name == 'kocom': 
-                    start_hex = 'aa'
-                elif packet_name == 'grex_ventilator': 
-                    start_hex = 'd1'
-                elif packet_name == 'grex_controller': 
-                    start_hex = 'd0'
-                    
+                if packet_name == 'kocom':  start_hex = 'aa'
+                elif packet_name == 'grex_ventilator':  start_hex = 'd1'
+                elif packet_name == 'grex_controller':  start_hex = 'd0'
                 if hex_d == start_hex:
                     start_flag = True
-                    packet = ''  # 새 패킷 시작 시 버퍼 초기화
-    
-                # 패킷 조립
                 if start_flag:
                     packet += hex_d
     
-                # 패킷 길이 확인 및 처리
-                if len(packet) >= packet_len * 2:  # 헥사 문자열 길이 계산 (1바이트=2문자)
+                if len(packet) >= packet_len:
                     chksum = self.check_sum(packet)
-                    
                     if chksum[0]:
                         self.tick = time.time()
-                        logger.debug("[From %s] 유효 패킷: %s", packet_name, packet)
+                        logger.debug("[From {}]{}".format(packet_name, packet))
                         self.packet_parsing(packet)
-                    else:
-                        logger.warning("[From %s] 체크섬 불일치: 수신=%s 계산=%s", 
-                                    packet_name, packet[36:38], chksum[1])
-                    
-                    # 패킷 처리 완료 후 초기화
                     packet = ''
                     start_flag = False
-                    reconnect_attempts = 0  # 재연결 카운터 리셋
-    
-                # 연결 상태 확인
-                if not self.connected:
-                    logger.error("연결 지속적 끊김. 스레드 종료")
-                    break
-    
-            except Exception as e:
-                logger.error("처리 중 예외 발생: %s", str(e))
-                self.reconnect()  # 예외 발생 시 재연결 시도
-                time.sleep(2)
+            else:
+                logger.debug("No data received.")
+            if not self.connected:
+                logger.debug('[ERROR] 서버 연결이 끊어져 get_serial Thread를 종료합니다.')
+                break
 
     def check_sum(self, packet):
         sum_packet = sum(bytearray.fromhex(packet)[:17])
