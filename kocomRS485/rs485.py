@@ -1172,7 +1172,7 @@ class Kocom(rs485):
                 try:
                     mode = self.wp_list[device][room]['mode']['set']
                     target_temp = self.wp_list[device][room]['target_temp']['set']
-                    if mode == 'heat':
+                    if mode == 'cool': #if mode == 'heat': #ac 250712
                         p_value += '1100'
                     elif mode == 'off':
                         # p_value += '0001'
