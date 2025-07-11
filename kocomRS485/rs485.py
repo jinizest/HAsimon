@@ -593,7 +593,7 @@ class Kocom(rs485):
             try:
                 if command != 'mode':
                     self.wp_list[device][room]['target_temp']['set'] = int(float(payload))
-                    self.wp_list[device][room]['mode']['set'] = 'heat'
+                    self.wp_list[device][room]['mode']['set'] = 'cool' #self.wp_list[device][room]['mode']['set'] = 'heat'
                     self.wp_list[device][room]['target_temp']['last'] = 'set'
                     self.wp_list[device][room]['mode']['last'] = 'set'
                 elif command == 'mode':
@@ -1058,7 +1058,7 @@ class Kocom(rs485):
                             self.wp_list[device][room][sub]['state'] = v
                         else:
                             self.wp_list[device][room][sub]['state'] = int(float(v))
-                            self.wp_list[device][room]['mode']['state'] = 'heat'
+                            self.wp_list[device][room]['mode']['state'] = 'cool' #250712 self.wp_list[device][room]['mode']['state'] = 'heat'
                         if (self.wp_list[device][room][sub]['last'] == 'set' or type(self.wp_list[device][room][sub]['last']) == float) and self.wp_list[device][room][sub]['set'] == self.wp_list[device][room][sub]['state']:
                             self.wp_list[device][room][sub]['last'] = 'state'
                             self.wp_list[device][room][sub]['count'] = 0
@@ -1221,14 +1221,14 @@ class Kocom(rs485):
 
     def parse_thermostat(self, value='0000000000000000', init_temp=False):
         thermo = {}
-        heat_mode = 'heat' if value[:2] == '11' else 'off'
+        heat_mode = 'cool' if value[:2] == '11' else 'off'  #250712 heat_mode = 'heat' if value[:2] == '11' else 'off' 
         away_mode = 'on' if value[2:4] == '01' else 'off'
         thermo['current_temp'] = int(value[8:10], 16)
-        if heat_mode == 'heat' and away_mode == 'on':
+        if heat_mode == 'cool' and away_mode == 'on': #250712 if heat_mode == 'heat' and away_mode == 'on':
             thermo['mode'] = 'fan_only'
             thermo['target_temp'] = INIT_TEMP if not init_temp else int(init_temp)
-        elif heat_mode == 'heat' and away_mode == 'off':
-            thermo['mode'] = 'heat'
+        elif heat_mode == 'cool' and away_mode == 'off': #elif heat_mode == 'heat' and away_mode == 'off':
+            thermo['mode'] = 'cool' #thermo['mode'] = 'heat'
             thermo['target_temp'] = int(value[4:6], 16)
         elif heat_mode == 'off':
             thermo['mode'] = 'off'
