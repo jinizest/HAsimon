@@ -837,7 +837,7 @@ class Kocom(rs485):
                         'min_temp': 5,
                         'max_temp': 35,
                         'temp_step': 1,
-                        'modes': ['off', 'heat', 'fan_only'],
+                        'modes': ['off', 'cool', 'fan_only'], #['off', 'heat', 'fan_only'], << 난방전용 250712
                         'uniq_id': '{}_{}_{}'.format(self._name, room, DEVICE_THERMOSTAT),
                         'device': {
                             'name': 'Kocom {}'.format(room),
