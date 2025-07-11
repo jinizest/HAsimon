@@ -837,7 +837,7 @@ class Kocom(rs485):
                         'min_temp': 5,
                         'max_temp': 35,
                         'temp_step': 1,
-                        'modes': ['off', 'cool', 'fan_only'], #['off', 'heat', 'fan_only'], << 난방전용 250712
+                        'modes': ['off', 'cool'], #['off', 'heat'], << 난방전용 250712
                         'uniq_id': '{}_{}_{}'.format(self._name, room, DEVICE_THERMOSTAT),
                         'device': {
                             'name': 'Kocom {}'.format(room),
@@ -1225,7 +1225,7 @@ class Kocom(rs485):
         away_mode = 'on' if value[2:4] == '01' else 'off'
         thermo['current_temp'] = int(value[8:10], 16)
         if heat_mode == 'cool' and away_mode == 'on': #250712 if heat_mode == 'heat' and away_mode == 'on':
-            thermo['mode'] = 'fan_only'
+            thermo['mode'] = 'cool' #thermo['mode'] = 'fan_only'
             thermo['target_temp'] = INIT_TEMP if not init_temp else int(init_temp)
         elif heat_mode == 'cool' and away_mode == 'off': #elif heat_mode == 'heat' and away_mode == 'off':
             thermo['mode'] = 'cool' #thermo['mode'] = 'heat'
