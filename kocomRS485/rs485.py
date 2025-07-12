@@ -1231,7 +1231,7 @@ class Kocom(rs485):
 
     def parse_thermostat(self, value='0000000000000000', init_temp=False):
         thermo = {}
-        heat_mode = 'cool' if value[:2] == '11' else 'off'  #250712 heat_mode = 'heat' if value[:2] == '11' else 'off' 
+        heat_mode = 'cool' if value[2:4] == '00' else 'off'  #250712 value[2:4] == '00' --> on ,#250712 heat_mode = 'heat' if value[:2] == '11' else 'off' 
         away_mode = 'on' if value[2:4] == '01' else 'off'
         thermo['current_temp'] = int(value[8:10], 16)
         if heat_mode == 'cool' and away_mode == 'on': #250712 if heat_mode == 'heat' and away_mode == 'on':
