@@ -34,6 +34,24 @@ CONF_LOGLEVEL = 'info' # debug, info, warn
 
 # 보일러 초기값
 INIT_TEMP = 17 # 17도로 변경 @241119
+
+
+def _normalize_thermostat_mode(mode):
+    if isinstance(mode, str) and mode.lower() in ('heat', 'cool'):
+        return mode.lower()
+    return 'heat'
+
+
+# 기본 난방/냉방 모드 (애드온 옵션 Advanced.THERMOSTAT_DEFAULT_MODE 또는
+# 환경변수 THERMOSTAT_DEFAULT_MODE 로 변경 가능)
+THERMOSTAT_DEFAULT_MODE = _normalize_thermostat_mode(os.getenv('THERMOSTAT_DEFAULT_MODE', 'heat'))
+THERMOSTAT_SUPPORTED_MODES = ['off', THERMOSTAT_DEFAULT_MODE]
+THERMOSTAT_MODE_PREFIX_MAP = {
+    'heat': '1101',
+    'cool': '1100',
+    'off': '0100',
+}
+THERMOSTAT_PREFIX_TO_MODE = {v: k for k, v in THERMOSTAT_MODE_PREFIX_MAP.items()}
 # 환풍기 초기속도 ['low', 'medium', 'high']
 # DEFAULT_SPEED = 'medium' #주석처리 @241119 simon
 # 조명 / 플러그 갯수
@@ -62,13 +80,16 @@ RETRY_DELAY = 1  # 재시도 간 대기 시간(초)
 option_file = '/data/options.json'                                                                                             
 if os.path.isfile(option_file):                                                                                                
     with open(option_file) as json_file:                                                                                   
-        json_data = json.load(json_file)                                                                               
-        INIT_TEMP = json_data['Advanced']['INIT_TEMP']                                                                 
-        SCAN_INTERVAL = json_data['Advanced']['SCAN_INTERVAL']                                                         
-        SCANNING_INTERVAL = json_data['Advanced']['SCANNING_INTERVAL'] 
-        DEFAULT_SPEED = json_data['Advanced']['DEFAULT_SPEED'] 
+        json_data = json.load(json_file)
+        INIT_TEMP = json_data['Advanced']['INIT_TEMP']
+        SCAN_INTERVAL = json_data['Advanced']['SCAN_INTERVAL']
+        SCANNING_INTERVAL = json_data['Advanced']['SCANNING_INTERVAL']
+        DEFAULT_SPEED = json_data['Advanced']['DEFAULT_SPEED']
         CONF_LOGLEVEL = json_data['Advanced']['LOGLEVEL']
-        KOCOM_LIGHT_SIZE = {} 
+        if 'THERMOSTAT_DEFAULT_MODE' in json_data['Advanced']:
+            THERMOSTAT_DEFAULT_MODE = _normalize_thermostat_mode(json_data['Advanced']['THERMOSTAT_DEFAULT_MODE'])
+            THERMOSTAT_SUPPORTED_MODES = ['off', THERMOSTAT_DEFAULT_MODE]
+        KOCOM_LIGHT_SIZE = {}
         dict_data = json_data['KOCOM_LIGHT_SIZE']                                                               
         for i in dict_data:
             KOCOM_LIGHT_SIZE[i['name']] = i['number'] 
@@ -601,7 +622,7 @@ class Kocom(rs485):
             try:
                 if command != 'mode':
                     self.wp_list[device][room]['target_temp']['set'] = int(float(payload))
-                    self.wp_list[device][room]['mode']['set'] = 'cool' #self.wp_list[device][room]['mode']['set'] = 'heat'
+                    self.wp_list[device][room]['mode']['set'] = THERMOSTAT_DEFAULT_MODE
                     self.wp_list[device][room]['target_temp']['last'] = 'set'
                     self.wp_list[device][room]['mode']['last'] = 'set'
                 elif command == 'mode':
@@ -845,7 +866,7 @@ class Kocom(rs485):
                         'min_temp': 5,
                         'max_temp': 35,
                         'temp_step': 1,
-                        'modes': ['off', 'cool'], #['off', 'heat'], << 난방전용 250712
+                        'modes': THERMOSTAT_SUPPORTED_MODES,
                         'uniq_id': '{}_{}_{}'.format(self._name, room, DEVICE_THERMOSTAT),
                         'device': {
                             'name': 'Kocom {}'.format(room),
@@ -1068,7 +1089,7 @@ class Kocom(rs485):
                             self.wp_list[device][room][sub]['state'] = v
                         else:
                             self.wp_list[device][room][sub]['state'] = int(float(v))
-                            self.wp_list[device][room]['mode']['state'] = 'cool' #250712 self.wp_list[device][room]['mode']['state'] = 'heat'
+                            self.wp_list[device][room]['mode']['state'] = value.get('mode', THERMOSTAT_DEFAULT_MODE)
                         if (self.wp_list[device][room][sub]['last'] == 'set' or type(self.wp_list[device][room][sub]['last']) == float) and self.wp_list[device][room][sub]['set'] == self.wp_list[device][room][sub]['state']:
                             self.wp_list[device][room][sub]['last'] = 'state'
                             self.wp_list[device][room][sub]['count'] = 0
@@ -1182,13 +1203,10 @@ class Kocom(rs485):
                 try:
                     mode = self.wp_list[device][room]['mode']['set']
                     target_temp = self.wp_list[device][room]['target_temp']['set']
-                    if mode == 'cool': #if mode == 'heat': #ac 250712
-                        p_value += '1100'
-                    elif mode == 'off':
-                        # p_value += '0001'
-                        p_value += '0100'
-                    else:
-                        p_value += '1101'
+                    mode_prefix = THERMOSTAT_MODE_PREFIX_MAP.get(str(mode).lower())
+                    if mode_prefix is None:
+                        mode_prefix = THERMOSTAT_MODE_PREFIX_MAP.get(THERMOSTAT_DEFAULT_MODE)
+                    p_value += mode_prefix
                     p_value += '{0:02x}'.format(int(float(target_temp)))
                     p_value += '0000000000'
                 except:
@@ -1231,16 +1249,19 @@ class Kocom(rs485):
 
     def parse_thermostat(self, value='0000000000000000', init_temp=False):
         thermo = {}
-        heat_mode = 'cool' if value[2:4] == '00' else 'off'  #250712 value[2:4] == '00' --> on ,#250712 heat_mode = 'heat' if value[:2] == '11' else 'off' 
+        mode_prefix = value[:4]
+        heat_mode = THERMOSTAT_PREFIX_TO_MODE.get(mode_prefix, 'off')
+        if heat_mode == 'off' and value[:2] == '11':
+            heat_mode = THERMOSTAT_DEFAULT_MODE
         away_mode = 'on' if value[2:4] == '01' else 'off'
         thermo['current_temp'] = int(value[8:10], 16)
-        if heat_mode == 'cool' and away_mode == 'on': #250712 if heat_mode == 'heat' and away_mode == 'on':
-            thermo['mode'] = 'cool' #thermo['mode'] = 'fan_only'
-            thermo['target_temp'] = INIT_TEMP if not init_temp else int(init_temp)
-        elif heat_mode == 'cool' and away_mode == 'off': #elif heat_mode == 'heat' and away_mode == 'off':
-            thermo['mode'] = 'cool' #thermo['mode'] = 'heat'
-            thermo['target_temp'] = int(value[4:6], 16)
-        elif heat_mode == 'off':
+        if heat_mode != 'off':
+            thermo['mode'] = heat_mode
+            if away_mode == 'on':
+                thermo['target_temp'] = INIT_TEMP if not init_temp else int(init_temp)
+            else:
+                thermo['target_temp'] = int(value[4:6], 16)
+        else:
             thermo['mode'] = 'off'
             thermo['target_temp'] = INIT_TEMP if not init_temp else int(init_temp)
         return thermo

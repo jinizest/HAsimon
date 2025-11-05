@@ -54,7 +54,8 @@
       "SCAN_INTERVAL": 300,
       "SCANNING_INTERVAL": 0.8,
       "DEFAULT_SPEED" : "medium",
-      "LOGLEVEL" : "info"
+      "LOGLEVEL" : "info",
+      "THERMOSTAT_DEFAULT_MODE": "heat"
     },
     "KOCOM_LIGHT_SIZE": [
       {
@@ -144,7 +145,8 @@
       "SCAN_INTERVAL": "int(100,1000)",
       "SCANNING_INTERVAL": "float",
       "DEFAULT_SPEED" : "str",
-      "LOGLEVEL" : "str"
+      "LOGLEVEL" : "str",
+      "THERMOSTAT_DEFAULT_MODE": "list(heat|cool)"
     },
     "KOCOM_LIGHT_SIZE": [
       {

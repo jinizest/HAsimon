@@ -57,6 +57,7 @@ Advanced:
   SCANNING_INTERVAL: 0.8
   DEFAULT_SPEED: medium
   LOGLEVEL: info
+  THERMOSTAT_DEFAULT_MODE: heat
 KOCOM_LIGHT_SIZE:
   - name: livingroom
     number: 3
@@ -151,6 +152,7 @@ SCAN_INTERVAL: 300      // 월패드의 상태값 조회 간격
 SCANNING_INTERVAL: 0.5  // 상태값 조회 시 패킷전송 간격
 DEFAULT_SPEED: medium   //환풍기 초기속도 low, medium, high
 LOGLEVEL: info , debug, info, warn 중에 하나
+THERMOSTAT_DEFAULT_MODE: heat // 난방/냉방 기본 모드 (heat 혹은 cool)
 ```
 ### Option `KOCOM_LIGHT_SIZE` (optional)
 name은 방이름, number는 조명 개수. 본인의 집 수량만큼 추가 가능.
