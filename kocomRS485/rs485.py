@@ -42,7 +42,8 @@ def _normalize_thermostat_mode(mode):
     return 'heat'
 
 
-# 기본 난방/냉방 모드 (환경변수 THERMOSTAT_DEFAULT_MODE 로 변경 가능)
+# 기본 난방/냉방 모드 (애드온 옵션 Advanced.THERMOSTAT_DEFAULT_MODE 또는
+# 환경변수 THERMOSTAT_DEFAULT_MODE 로 변경 가능)
 THERMOSTAT_DEFAULT_MODE = _normalize_thermostat_mode(os.getenv('THERMOSTAT_DEFAULT_MODE', 'heat'))
 THERMOSTAT_SUPPORTED_MODES = ['off', THERMOSTAT_DEFAULT_MODE]
 THERMOSTAT_MODE_PREFIX_MAP = {
