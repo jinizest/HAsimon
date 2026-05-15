@@ -24,7 +24,7 @@ logger = logging.getLogger(__name__)
 
 
 # Version
-SW_VERSION = 'RS485 Compilation 1.0.3b'
+SW_VERSION = 'RS485 Compilation 1.0.8'
 # Log Level
 CONF_LOGLEVEL = 'info' # debug, info, warn
 
@@ -36,16 +36,58 @@ CONF_LOGLEVEL = 'info' # debug, info, warn
 INIT_TEMP = 17 # 17도로 변경 @241119
 
 
-def _normalize_thermostat_mode(mode):
-    if isinstance(mode, str) and mode.lower() in ('heat', 'cool'):
-        return mode.lower()
+def get_seasonal_thermostat_mode(now=None):
+    """Return the season-based thermostat HVAC mode.
+
+    5/1 00:00부터 10/1 00:00 전까지는 냉방(cool), 그 외 기간은
+    난방(heat)으로 처리합니다. 10/1 당일은 난방 기간에 포함됩니다.
+    """
+    if now is None:
+        now = time.localtime()
+
+    month_day = (now.tm_mon, now.tm_mday)
+    if (5, 1) <= month_day < (10, 1):
+        return 'cool'
     return 'heat'
+
+
+def _normalize_thermostat_mode(mode):
+    if isinstance(mode, str):
+        mode = mode.lower()
+        if mode in ('heat', 'cool'):
+            return mode
+        if mode in ('auto', 'season', 'seasonal'):
+            return 'auto'
+    return 'auto'
+
+
+def get_thermostat_active_mode():
+    if THERMOSTAT_DEFAULT_MODE == 'auto':
+        return get_seasonal_thermostat_mode()
+    return THERMOSTAT_DEFAULT_MODE
+
+
+def get_thermostat_supported_modes():
+    if THERMOSTAT_DEFAULT_MODE == 'auto':
+        return ['off', 'heat', 'cool']
+    return ['off', THERMOSTAT_DEFAULT_MODE]
+
+
+def coerce_thermostat_mode(mode):
+    mode_key = str(mode).lower()
+    if mode_key == 'off':
+        return 'off'
+    if mode_key in ('heat', 'cool'):
+        if THERMOSTAT_DEFAULT_MODE == 'auto':
+            return get_thermostat_active_mode()
+        return mode_key
+    return get_thermostat_active_mode()
 
 
 # 기본 난방/냉방 모드 (애드온 옵션 Advanced.THERMOSTAT_DEFAULT_MODE 또는
 # 환경변수 THERMOSTAT_DEFAULT_MODE 로 변경 가능)
-THERMOSTAT_DEFAULT_MODE = _normalize_thermostat_mode(os.getenv('THERMOSTAT_DEFAULT_MODE', 'heat'))
-THERMOSTAT_SUPPORTED_MODES = ['off', THERMOSTAT_DEFAULT_MODE]
+# auto이면 5/1~10/1 전까지 cool, 10/1~다음해 5/1 전까지 heat로 자동 전환
+THERMOSTAT_DEFAULT_MODE = _normalize_thermostat_mode(os.getenv('THERMOSTAT_DEFAULT_MODE', 'auto'))
 THERMOSTAT_ACTIVE_PREFIX = '1100'
 THERMOSTAT_AWAY_PREFIX = '1101'
 THERMOSTAT_OFF_PREFIX = '0100'
@@ -96,7 +138,6 @@ if os.path.isfile(option_file):
         CONF_LOGLEVEL = json_data['Advanced']['LOGLEVEL']
         if 'THERMOSTAT_DEFAULT_MODE' in json_data['Advanced']:
             THERMOSTAT_DEFAULT_MODE = _normalize_thermostat_mode(json_data['Advanced']['THERMOSTAT_DEFAULT_MODE'])
-            THERMOSTAT_SUPPORTED_MODES = ['off', THERMOSTAT_DEFAULT_MODE]
         KOCOM_LIGHT_SIZE = {}
         dict_data = json_data['KOCOM_LIGHT_SIZE']                                                               
         for i in dict_data:
@@ -634,9 +675,7 @@ class Kocom(rs485):
             room = topic[2]
             try:
                 if command == 'mode':
-                    hvac_mode = str(payload).lower()
-                    if hvac_mode not in THERMOSTAT_SUPPORTED_MODES:
-                        hvac_mode = THERMOSTAT_DEFAULT_MODE
+                    hvac_mode = coerce_thermostat_mode(payload)
                     self.wp_list[device][room]['mode']['set'] = hvac_mode
                     self.wp_list[device][room]['mode']['last'] = 'set'
                     if hvac_mode == 'off':
@@ -647,12 +686,12 @@ class Kocom(rs485):
                     self.wp_list[device][room]['away_mode']['set'] = away_payload
                     self.wp_list[device][room]['away_mode']['last'] = 'set'
                     if away_payload == 'on' and self.wp_list[device][room]['mode']['set'] == 'off':
-                        self.wp_list[device][room]['mode']['set'] = THERMOSTAT_DEFAULT_MODE
+                        self.wp_list[device][room]['mode']['set'] = get_thermostat_active_mode()
                         self.wp_list[device][room]['mode']['last'] = 'set'
                 else:
                     self.wp_list[device][room]['target_temp']['set'] = int(float(payload))
                     self.wp_list[device][room]['target_temp']['last'] = 'set'
-                    self.wp_list[device][room]['mode']['set'] = THERMOSTAT_DEFAULT_MODE
+                    self.wp_list[device][room]['mode']['set'] = get_thermostat_active_mode()
                     self.wp_list[device][room]['mode']['last'] = 'set'
                     self.wp_list[device][room]['away_mode']['set'] = 'off'
                     self.wp_list[device][room]['away_mode']['last'] = 'set'
@@ -904,7 +943,7 @@ class Kocom(rs485):
                         'min_temp': 5,
                         'max_temp': 35,
                         'temp_step': 1,
-                        'modes': THERMOSTAT_SUPPORTED_MODES,
+                        'modes': get_thermostat_supported_modes(),
                         'uniq_id': '{}_{}_{}'.format(self._name, room, DEVICE_THERMOSTAT),
                         'device': {
                             'name': 'Kocom {}'.format(room),
@@ -1133,7 +1172,7 @@ class Kocom(rs485):
                         else:
                             self.wp_list[device][room][sub]['state'] = int(float(v))
                             if sub == 'target_temp':
-                                self.wp_list[device][room]['mode']['state'] = value.get('mode', THERMOSTAT_DEFAULT_MODE)
+                                self.wp_list[device][room]['mode']['state'] = value.get('mode', get_thermostat_active_mode())
                                 self.wp_list[device][room]['away_mode']['state'] = value.get('away_mode', self.wp_list[device][room]['away_mode']['state'])
                         if (self.wp_list[device][room][sub]['last'] == 'set' or type(self.wp_list[device][room][sub]['last']) == float) and self.wp_list[device][room][sub]['set'] == self.wp_list[device][room][sub]['state']:
                             self.wp_list[device][room][sub]['last'] = 'state'
@@ -1249,10 +1288,9 @@ class Kocom(rs485):
                     mode = self.wp_list[device][room]['mode']['set']
                     away_mode = self.wp_list[device][room]['away_mode']['set']
                     target_temp = self.wp_list[device][room]['target_temp']['set']
-                    mode_key = str(mode).lower()
+                    mode_key = coerce_thermostat_mode(mode)
                     away_key = str(away_mode).lower()
-                    if mode_key not in THERMOSTAT_SUPPORTED_MODES:
-                        mode_key = THERMOSTAT_DEFAULT_MODE
+                    if str(mode).lower() != mode_key:
                         self.wp_list[device][room]['mode']['set'] = mode_key
                     if mode_key == 'off':
                         mode_prefix = THERMOSTAT_OFF_PREFIX
@@ -1309,7 +1347,7 @@ class Kocom(rs485):
         if mode_code == 'off':
             hvac_mode = 'off'
         elif mode_code in ('active', 'away') or value[:2] == '11':
-            hvac_mode = THERMOSTAT_DEFAULT_MODE
+            hvac_mode = get_thermostat_active_mode()
         else:
             hvac_mode = 'off'
 
