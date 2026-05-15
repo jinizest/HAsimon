@@ -69,8 +69,12 @@ def get_thermostat_active_mode():
 
 def get_thermostat_supported_modes():
     if THERMOSTAT_DEFAULT_MODE == 'auto':
-        return ['off', 'heat', 'cool']
+        return ['off', get_thermostat_active_mode()]
     return ['off', THERMOSTAT_DEFAULT_MODE]
+
+
+def thermostat_supports_away_mode():
+    return get_thermostat_active_mode() == 'heat'
 
 
 def coerce_thermostat_mode(mode):
@@ -197,12 +201,16 @@ KOCOM_DEVICE                = {'01': DEVICE_WALLPAD, '0e': DEVICE_LIGHT, '36': D
 KOCOM_COMMAND               = {'3a': '조회', '00': '상태', '01': 'on', '02': 'off'}
 KOCOM_TYPE                  = {'30b': 'send', '30d': 'ack'}
 KOCOM_FAN_SPEED             = {'4': 'low', '8': 'medium', 'c': 'high', '0': 'off'}
+KOCOM_THERMOSTAT_FAN_MODE   = {'00': 'auto', '04': 'low', '08': 'medium', '0c': 'high'}
+FAN_PERCENTAGE_TO_SPEED     = {'0': 'off', '1': 'low', '2': 'medium', '3': 'high'}
+FAN_SPEED_TO_PERCENTAGE     = {'off': 0, 'low': 1, 'medium': 2, 'high': 3}
 KOCOM_DEVICE_REV            = {v: k for k, v in KOCOM_DEVICE.items()}
 KOCOM_ROOM_REV              = {v: k for k, v in KOCOM_ROOM.items()}
 KOCOM_ROOM_THERMOSTAT_REV   = {v: k for k, v in KOCOM_ROOM_THERMOSTAT.items()}
 KOCOM_COMMAND_REV           = {v: k for k, v in KOCOM_COMMAND.items()}
 KOCOM_TYPE_REV              = {v: k for k, v in KOCOM_TYPE.items()}
 KOCOM_FAN_SPEED_REV         = {v: k for k, v in KOCOM_FAN_SPEED.items()}
+KOCOM_THERMOSTAT_FAN_MODE_REV = {v: k for k, v in KOCOM_THERMOSTAT_FAN_MODE.items()}
 KOCOM_ROOM_REV[DEVICE_WALLPAD] = '00'
 
 # KOCOM TIME 변수
@@ -397,6 +405,7 @@ class Kocom(rs485):
                     self.wp_list[d_name][r_name]['away_mode'] = {'state': 'off', 'set': 'off', 'last': 'state', 'count': 0}
                     self.wp_list[d_name][r_name]['current_temp'] = {'state': 0, 'set': 0, 'last': 'state', 'count': 0}
                     self.wp_list[d_name][r_name]['target_temp'] = {'state': INIT_TEMP, 'set': INIT_TEMP, 'last': 'state', 'count': 0}
+                    self.wp_list[d_name][r_name]['fan_mode'] = {'state': 'auto', 'set': 'auto', 'last': 'state', 'count': 0}
             elif d_name == DEVICE_LIGHT or d_name == DEVICE_PLUG:
                 self.wp_list[d_name] = {}
                 for r_name in KOCOM_ROOM.values():
@@ -615,6 +624,7 @@ class Kocom(rs485):
                             self.wp_list[d_name][r_name]['away_mode'] = {'state': 'off', 'set': 'off', 'last': 'state', 'count': 0}
                             self.wp_list[d_name][r_name]['current_temp'] = {'state': 0, 'set': 0, 'last': 'state', 'count': 0}
                             self.wp_list[d_name][r_name]['target_temp'] = {'state': INIT_TEMP, 'set': INIT_TEMP, 'last': 'state', 'count': 0}
+                            self.wp_list[d_name][r_name]['fan_mode'] = {'state': 'auto', 'set': 'auto', 'last': 'state', 'count': 0}
                     elif d_name == DEVICE_LIGHT or d_name == DEVICE_PLUG:
                         for r_name in KOCOM_ROOM.values():
                             self.wp_list[d_name][r_name] = {'scan': {'tick': 0, 'count': 0, 'last': 0}}
@@ -678,16 +688,31 @@ class Kocom(rs485):
                     hvac_mode = coerce_thermostat_mode(payload)
                     self.wp_list[device][room]['mode']['set'] = hvac_mode
                     self.wp_list[device][room]['mode']['last'] = 'set'
-                    if hvac_mode == 'off':
+                    if not thermostat_supports_away_mode() or hvac_mode != 'heat':
                         self.wp_list[device][room]['away_mode']['set'] = 'off'
                         self.wp_list[device][room]['away_mode']['last'] = 'set'
                 elif command == 'away_mode':
-                    away_payload = 'on' if str(payload).lower() == 'on' else 'off'
+                    if thermostat_supports_away_mode():
+                        away_payload = 'on' if str(payload).lower() == 'on' else 'off'
+                    else:
+                        away_payload = 'off'
                     self.wp_list[device][room]['away_mode']['set'] = away_payload
                     self.wp_list[device][room]['away_mode']['last'] = 'set'
                     if away_payload == 'on' and self.wp_list[device][room]['mode']['set'] == 'off':
+                        self.wp_list[device][room]['mode']['set'] = 'heat'
+                        self.wp_list[device][room]['mode']['last'] = 'set'
+                elif command == 'fan_mode':
+                    fan_mode = str(payload).lower()
+                    if fan_mode not in KOCOM_THERMOSTAT_FAN_MODE_REV:
+                        fan_mode = 'auto'
+                    self.wp_list[device][room]['fan_mode']['set'] = fan_mode
+                    self.wp_list[device][room]['fan_mode']['last'] = 'set'
+                    if self.wp_list[device][room]['mode']['set'] == 'off':
                         self.wp_list[device][room]['mode']['set'] = get_thermostat_active_mode()
                         self.wp_list[device][room]['mode']['last'] = 'set'
+                    if not thermostat_supports_away_mode():
+                        self.wp_list[device][room]['away_mode']['set'] = 'off'
+                        self.wp_list[device][room]['away_mode']['last'] = 'set'
                 else:
                     self.wp_list[device][room]['target_temp']['set'] = int(float(payload))
                     self.wp_list[device][room]['target_temp']['last'] = 'set'
@@ -699,14 +724,16 @@ class Kocom(rs485):
                     'mode': self.wp_list[device][room]['mode']['set'],
                     'target_temp': self.wp_list[device][room]['target_temp']['set'],
                     'current_temp': self.wp_list[device][room]['current_temp']['state'],
-                    'away_mode': self.wp_list[device][room]['away_mode']['set']
+                    'away_mode': self.wp_list[device][room]['away_mode']['set'] if thermostat_supports_away_mode() else 'off',
+                    'fan_mode': self.wp_list[device][room]['fan_mode']['set']
                 }
-                logger.info('[From HA]{}/{}/set = [mode={}, target_temp={}, away_mode={}]'.format(
+                logger.info('[From HA]{}/{}/set = [mode={}, target_temp={}, away_mode={}, fan_mode={}]'.format(
                     device,
                     room,
                     self.wp_list[device][room]['mode']['set'],
                     self.wp_list[device][room]['target_temp']['set'],
-                    self.wp_list[device][room]['away_mode']['set']
+                    self.wp_list[device][room]['away_mode']['set'],
+                    self.wp_list[device][room]['fan_mode']['set']
                 ))
                 self.send_to_homeassistant(device, room, ha_payload)
             except:
@@ -715,9 +742,16 @@ class Kocom(rs485):
             device = DEVICE_FAN
             room = topic[2]
             try:
-                if command != 'mode':
-                    self.wp_list[device][room]['speed']['set'] = payload
-                    self.wp_list[device][room]['mode']['set'] = 'on'
+                if command == 'percentage':
+                    speed = FAN_PERCENTAGE_TO_SPEED.get(str(int(float(payload))), DEFAULT_SPEED)
+                    self.wp_list[device][room]['speed']['set'] = speed
+                    self.wp_list[device][room]['mode']['set'] = 'off' if speed == 'off' else 'on'
+                elif command != 'mode':
+                    speed = str(payload).lower()
+                    if speed not in KOCOM_FAN_SPEED_REV:
+                        speed = DEFAULT_SPEED
+                    self.wp_list[device][room]['speed']['set'] = speed
+                    self.wp_list[device][room]['mode']['set'] = 'off' if speed == 'off' else 'on'
                 elif command == 'mode':
                     self.wp_list[device][room]['speed']['set'] = DEFAULT_SPEED if payload == 'on' else 'off'
                     self.wp_list[device][room]['mode']['set'] = payload
@@ -725,7 +759,8 @@ class Kocom(rs485):
                 self.wp_list[device][room]['mode']['last'] = 'set'
                 ha_payload = {
                     'mode': self.wp_list[device][room]['mode']['set'],
-                    'speed': self.wp_list[device][room]['speed']['set']
+                    'speed': self.wp_list[device][room]['speed']['set'],
+                    'percentage': FAN_SPEED_TO_PERCENTAGE.get(self.wp_list[device][room]['speed']['set'], 0)
                 }
                 logger.info('[From HA]{}/{}/set = [mode={}, speed={}]'.format(device, room, self.wp_list[device][room]['mode']['set'], self.wp_list[device][room]['speed']['set']))
                 self.send_to_homeassistant(device, room, ha_payload)
@@ -842,11 +877,15 @@ class Kocom(rs485):
                 'stat_t': '{}/{}/{}/state'.format(HA_PREFIX, HA_FAN, 'wallpad'),
                 'spd_cmd_t': '{}/{}/{}/speed'.format(HA_PREFIX, HA_FAN, 'wallpad'),
                 'spd_stat_t': '{}/{}/{}/state'.format(HA_PREFIX, HA_FAN, 'wallpad'),
+                'percentage_command_topic': '{}/{}/{}/percentage'.format(HA_PREFIX, HA_FAN, 'wallpad'),
+                'percentage_state_topic': '{}/{}/{}/state'.format(HA_PREFIX, HA_FAN, 'wallpad'),
                 'stat_val_tpl': '{{ value_json.mode }}',
                 'spd_val_tpl': '{{ value_json.speed }}',
+                'percentage_value_template': '{{ value_json.percentage }}',
                 'pl_on': 'on',
                 'pl_off': 'off',
-                'spds': ['low', 'medium', 'high', 'off'],
+                'speed_range_min': 1,
+                'speed_range_max': 3,
                 'uniq_id': '{}_{}_{}'.format(self._name, 'wallpad', DEVICE_FAN),
                 'device': {
                     'name': 'Kocom {}'.format('wallpad'),
@@ -860,6 +899,7 @@ class Kocom(rs485):
             subscribe_list.append((ha_payload['cmd_t'], 0))
             #subscribe_list.append((ha_payload['stat_t'], 0))
             subscribe_list.append((ha_payload['spd_cmd_t'], 0))
+            subscribe_list.append((ha_payload['percentage_command_topic'], 0))
             if remove:
                 publish_list.append({ha_topic : ''})
             else:
@@ -937,9 +977,10 @@ class Kocom(rs485):
                         'temp_stat_tpl': '{{ value_json.target_temp }}',
                         'curr_temp_t': '{}/{}/{}/state'.format(HA_PREFIX, HA_CLIMATE, room),
                         'curr_temp_tpl': '{{ value_json.current_temp }}',
-                        'away_mode_cmd_t': '{}/{}/{}/away_mode'.format(HA_PREFIX, HA_CLIMATE, room),
-                        'away_mode_stat_t': '{}/{}/{}/state'.format(HA_PREFIX, HA_CLIMATE, room),
-                        'away_mode_stat_tpl': '{{ value_json.away_mode }}',
+                        'fan_mode_cmd_t': '{}/{}/{}/fan_mode'.format(HA_PREFIX, HA_CLIMATE, room),
+                        'fan_mode_stat_t': '{}/{}/{}/state'.format(HA_PREFIX, HA_CLIMATE, room),
+                        'fan_mode_stat_tpl': '{{ value_json.fan_mode }}',
+                        'fan_modes': ['auto', 'low', 'medium', 'high'],
                         'min_temp': 5,
                         'max_temp': 35,
                         'temp_step': 1,
@@ -953,12 +994,18 @@ class Kocom(rs485):
                             'sw': SW_VERSION
                         }
                     }
+                    if thermostat_supports_away_mode():
+                        ha_payload['away_mode_cmd_t'] = '{}/{}/{}/away_mode'.format(HA_PREFIX, HA_CLIMATE, room)
+                        ha_payload['away_mode_stat_t'] = '{}/{}/{}/state'.format(HA_PREFIX, HA_CLIMATE, room)
+                        ha_payload['away_mode_stat_tpl'] = '{{ value_json.away_mode }}'
                     subscribe_list.append((ha_topic, 0))
                     subscribe_list.append((ha_payload['mode_cmd_t'], 0))
                     #subscribe_list.append((ha_payload['mode_stat_t'], 0))
                     subscribe_list.append((ha_payload['temp_cmd_t'], 0))
                     #subscribe_list.append((ha_payload['temp_stat_t'], 0))
-                    subscribe_list.append((ha_payload['away_mode_cmd_t'], 0))
+                    if thermostat_supports_away_mode():
+                        subscribe_list.append((ha_payload['away_mode_cmd_t'], 0))
+                    subscribe_list.append((ha_payload['fan_mode_cmd_t'], 0))
                     if remove:
                         publish_list.append({ha_topic : ''})
                     else:
@@ -972,6 +1019,9 @@ class Kocom(rs485):
         self.ha_registry = ha_topic
 
     def send_to_homeassistant(self, device, room, value):
+        if device == DEVICE_FAN and isinstance(value, dict) and 'speed' in value and 'percentage' not in value:
+            value = value.copy()
+            value['percentage'] = FAN_SPEED_TO_PERCENTAGE.get(value['speed'], 0)
         v_value = json.dumps(value)
         if device == DEVICE_LIGHT:
             self.d_mqtt.publish("{}/{}/{}/state".format(HA_PREFIX, HA_LIGHT, room), v_value)
@@ -1169,6 +1219,8 @@ class Kocom(rs485):
                                 self.wp_list[device][room]['away_mode']['state'] = 'off'
                         elif sub == 'away_mode':
                             self.wp_list[device][room][sub]['state'] = v
+                        elif sub == 'fan_mode':
+                            self.wp_list[device][room][sub]['state'] = v if v in KOCOM_THERMOSTAT_FAN_MODE_REV else 'auto'
                         else:
                             self.wp_list[device][room][sub]['state'] = int(float(v))
                             if sub == 'target_temp':
@@ -1288,19 +1340,21 @@ class Kocom(rs485):
                     mode = self.wp_list[device][room]['mode']['set']
                     away_mode = self.wp_list[device][room]['away_mode']['set']
                     target_temp = self.wp_list[device][room]['target_temp']['set']
+                    fan_mode = self.wp_list[device][room]['fan_mode']['set']
                     mode_key = coerce_thermostat_mode(mode)
                     away_key = str(away_mode).lower()
                     if str(mode).lower() != mode_key:
                         self.wp_list[device][room]['mode']['set'] = mode_key
                     if mode_key == 'off':
                         mode_prefix = THERMOSTAT_OFF_PREFIX
-                    elif away_key == 'on':
+                    elif mode_key == 'heat' and thermostat_supports_away_mode() and away_key == 'on':
                         mode_prefix = THERMOSTAT_AWAY_PREFIX
                     else:
                         mode_prefix = THERMOSTAT_ACTIVE_PREFIX
                     p_value += mode_prefix
                     p_value += '{0:02x}'.format(int(float(target_temp)))
-                    p_value += '0000000000'
+                    p_value += KOCOM_THERMOSTAT_FAN_MODE_REV.get(fan_mode, '00')
+                    p_value += '00000000'
                 except:
                     logger.debug('[Make Packet] Error on DEVICE_THERMOSTAT')
             elif device == DEVICE_FAN:
@@ -1343,7 +1397,7 @@ class Kocom(rs485):
         thermo = {}
         mode_prefix = value[:4]
         mode_code = THERMOSTAT_PREFIX_TO_MODE.get(mode_prefix)
-        away_mode = 'on' if mode_code == 'away' or value[2:4] == '01' else 'off'
+        away_mode = 'on' if thermostat_supports_away_mode() and (mode_code == 'away' or value[2:4] == '01') else 'off'
         if mode_code == 'off':
             hvac_mode = 'off'
         elif mode_code in ('active', 'away') or value[:2] == '11':
@@ -1354,6 +1408,7 @@ class Kocom(rs485):
         thermo['current_temp'] = int(value[8:10], 16)
         thermo['away_mode'] = away_mode
         thermo['mode'] = hvac_mode if hvac_mode != 'off' else 'off'
+        thermo['fan_mode'] = KOCOM_THERMOSTAT_FAN_MODE.get(value[6:8], 'auto')
 
         try:
             target_temp = int(value[4:6], 16)
