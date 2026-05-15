@@ -102,9 +102,9 @@ def get_pending_thermostat_fan_mode(room_state):
 
 def apply_pending_thermostat_fan_mode(room_state, payload):
     pending_fan_mode = get_pending_thermostat_fan_mode(room_state)
-    if pending_fan_mode in KOCOM_THERMOSTAT_FAN_MODE_REV:
+    if pending_fan_mode is not None and encode_thermostat_fan_mode(pending_fan_mode, payload.get('mode')):
         payload = payload.copy()
-        payload['fan_mode'] = pending_fan_mode
+        payload['fan_mode'] = normalize_thermostat_fan_mode(pending_fan_mode, payload.get('mode'))
     return payload
 
 
@@ -159,7 +159,7 @@ if os.path.isfile(option_file):
         SCAN_INTERVAL = json_data['Advanced']['SCAN_INTERVAL']
         SCANNING_INTERVAL = json_data['Advanced']['SCANNING_INTERVAL']
         DEFAULT_SPEED = json_data['Advanced']['DEFAULT_SPEED']
-        CONF_LOGLEVEL = json_data['Advanced']['LOGLEVEL']
+        CONF_LOGLEVEL = str(json_data['Advanced']['LOGLEVEL']).lower()
         if 'THERMOSTAT_DEFAULT_MODE' in json_data['Advanced']:
             THERMOSTAT_DEFAULT_MODE = _normalize_thermostat_mode(json_data['Advanced']['THERMOSTAT_DEFAULT_MODE'])
         KOCOM_LIGHT_SIZE = {}
@@ -221,7 +221,8 @@ KOCOM_DEVICE                = {'01': DEVICE_WALLPAD, '0e': DEVICE_LIGHT, '36': D
 KOCOM_COMMAND               = {'3a': '조회', '00': '상태', '01': 'on', '02': 'off'}
 KOCOM_TYPE                  = {'30b': 'send', '30d': 'ack'}
 KOCOM_FAN_SPEED             = {'4': 'low', '8': 'medium', 'c': 'high', '0': 'off'}
-KOCOM_THERMOSTAT_FAN_MODE   = {'00': 'auto', '04': 'low', '08': 'medium', '0c': 'high'}
+KOCOM_THERMOSTAT_HEAT_FAN_MODE = {'00': 'auto', '04': 'low', '08': 'medium', '0c': 'high'}
+KOCOM_THERMOSTAT_FAN_MODE   = {'01': 'LOW', '02': 'MEDIUM', '03': 'HIGH'}
 THERMOSTAT_FAN_MODE_MAX_PENDING_COUNT = 4
 FAN_PERCENTAGE_TO_SPEED     = {'0': 'off', '1': 'low', '2': 'medium', '3': 'high'}
 FAN_SPEED_TO_PERCENTAGE     = {'off': 0, 'low': 1, 'medium': 2, 'high': 3}
@@ -232,6 +233,44 @@ KOCOM_COMMAND_REV           = {v: k for k, v in KOCOM_COMMAND.items()}
 KOCOM_TYPE_REV              = {v: k for k, v in KOCOM_TYPE.items()}
 KOCOM_FAN_SPEED_REV         = {v: k for k, v in KOCOM_FAN_SPEED.items()}
 KOCOM_THERMOSTAT_FAN_MODE_REV = {v: k for k, v in KOCOM_THERMOSTAT_FAN_MODE.items()}
+KOCOM_THERMOSTAT_HEAT_FAN_MODE_REV = {v: k for k, v in KOCOM_THERMOSTAT_HEAT_FAN_MODE.items()}
+
+
+def get_thermostat_fan_mode_map(mode=None):
+    if mode is None:
+        mode = get_thermostat_active_mode()
+    return KOCOM_THERMOSTAT_FAN_MODE if mode == 'cool' else KOCOM_THERMOSTAT_HEAT_FAN_MODE
+
+
+def get_thermostat_fan_mode_rev(mode=None):
+    return {v: k for k, v in get_thermostat_fan_mode_map(mode).items()}
+
+
+def get_default_thermostat_fan_mode(mode=None):
+    return next(iter(get_thermostat_fan_mode_map(mode).values()))
+
+
+def normalize_thermostat_fan_mode(fan_mode, mode=None):
+    fan_mode = str(fan_mode)
+    fan_mode_map = get_thermostat_fan_mode_map(mode)
+    fan_mode_rev = {v: k for k, v in fan_mode_map.items()}
+    if fan_mode in fan_mode_rev:
+        return fan_mode
+    lower_fan_mode = fan_mode.lower()
+    for supported_fan_mode in fan_mode_map.values():
+        if lower_fan_mode == str(supported_fan_mode).lower():
+            return supported_fan_mode
+    return get_default_thermostat_fan_mode(mode)
+
+
+def parse_thermostat_fan_mode(code, mode=None):
+    return get_thermostat_fan_mode_map(mode).get(code, get_default_thermostat_fan_mode(mode))
+
+
+def encode_thermostat_fan_mode(fan_mode, mode=None):
+    normalized_fan_mode = normalize_thermostat_fan_mode(fan_mode, mode)
+    return get_thermostat_fan_mode_rev(mode).get(normalized_fan_mode)
+
 KOCOM_ROOM_REV[DEVICE_WALLPAD] = '00'
 
 # KOCOM TIME 변수
@@ -426,7 +465,7 @@ class Kocom(rs485):
                     self.wp_list[d_name][r_name]['away_mode'] = {'state': 'off', 'set': 'off', 'last': 'state', 'count': 0}
                     self.wp_list[d_name][r_name]['current_temp'] = {'state': 0, 'set': 0, 'last': 'state', 'count': 0}
                     self.wp_list[d_name][r_name]['target_temp'] = {'state': INIT_TEMP, 'set': INIT_TEMP, 'last': 'state', 'count': 0}
-                    self.wp_list[d_name][r_name]['fan_mode'] = {'state': 'auto', 'set': 'auto', 'last': 'state', 'count': 0}
+                    self.wp_list[d_name][r_name]['fan_mode'] = {'state': get_default_thermostat_fan_mode(), 'set': get_default_thermostat_fan_mode(), 'last': 'state', 'count': 0}
             elif d_name == DEVICE_LIGHT or d_name == DEVICE_PLUG:
                 self.wp_list[d_name] = {}
                 for r_name in KOCOM_ROOM.values():
@@ -619,10 +658,11 @@ class Kocom(rs485):
 
         if 'config' in _topic and _topic[0] == 'rs485' and _topic[1] == 'bridge' and _topic[2] == 'config':
             if _topic[3] == 'log_level':
-                if _payload == "info": logger.setLevel(logging.INFO)
-                if _payload == "debug": logger.setLevel(logging.DEBUG)
-                if _payload == "warn": logger.setLevel(logging.WARN)
-                logger.info('[From HA]Set Loglevel to {}'.format(_payload))
+                log_level = str(_payload).lower()
+                if log_level == "info": logger.setLevel(logging.INFO)
+                if log_level == "debug": logger.setLevel(logging.DEBUG)
+                if log_level in ("warn", "warning"): logger.setLevel(logging.WARN)
+                logger.info('[From HA]Set Loglevel to {}'.format(log_level))
                 return
             elif _topic[3] == 'restart':
                 self.homeassistant_device_discovery()
@@ -645,7 +685,7 @@ class Kocom(rs485):
                             self.wp_list[d_name][r_name]['away_mode'] = {'state': 'off', 'set': 'off', 'last': 'state', 'count': 0}
                             self.wp_list[d_name][r_name]['current_temp'] = {'state': 0, 'set': 0, 'last': 'state', 'count': 0}
                             self.wp_list[d_name][r_name]['target_temp'] = {'state': INIT_TEMP, 'set': INIT_TEMP, 'last': 'state', 'count': 0}
-                            self.wp_list[d_name][r_name]['fan_mode'] = {'state': 'auto', 'set': 'auto', 'last': 'state', 'count': 0}
+                            self.wp_list[d_name][r_name]['fan_mode'] = {'state': get_default_thermostat_fan_mode(), 'set': get_default_thermostat_fan_mode(), 'last': 'state', 'count': 0}
                     elif d_name == DEVICE_LIGHT or d_name == DEVICE_PLUG:
                         for r_name in KOCOM_ROOM.values():
                             self.wp_list[d_name][r_name] = {'scan': {'tick': 0, 'count': 0, 'last': 0}}
@@ -723,9 +763,7 @@ class Kocom(rs485):
                         self.wp_list[device][room]['mode']['set'] = 'heat'
                         self.wp_list[device][room]['mode']['last'] = 'set'
                 elif command == 'fan_mode':
-                    fan_mode = str(payload).lower()
-                    if fan_mode not in KOCOM_THERMOSTAT_FAN_MODE_REV:
-                        fan_mode = 'auto'
+                    fan_mode = normalize_thermostat_fan_mode(payload)
                     self.wp_list[device][room]['fan_mode']['set'] = fan_mode
                     self.wp_list[device][room]['fan_mode']['last'] = 'set'
                     if self.wp_list[device][room]['mode']['set'] == 'off':
@@ -1001,7 +1039,7 @@ class Kocom(rs485):
                         'fan_mode_cmd_t': '{}/{}/{}/fan_mode'.format(HA_PREFIX, HA_CLIMATE, room),
                         'fan_mode_stat_t': '{}/{}/{}/state'.format(HA_PREFIX, HA_CLIMATE, room),
                         'fan_mode_stat_tpl': '{{ value_json.fan_mode }}',
-                        'fan_modes': ['auto', 'low', 'medium', 'high'],
+                        'fan_modes': list(get_thermostat_fan_mode_map().values()),
                         'min_temp': 5,
                         'max_temp': 35,
                         'temp_step': 1,
@@ -1244,7 +1282,7 @@ class Kocom(rs485):
                         elif sub == 'away_mode':
                             self.wp_list[device][room][sub]['state'] = v
                         elif sub == 'fan_mode':
-                            self.wp_list[device][room][sub]['state'] = v if v in KOCOM_THERMOSTAT_FAN_MODE_REV else 'auto'
+                            self.wp_list[device][room][sub]['state'] = normalize_thermostat_fan_mode(v, value.get('mode'))
                         else:
                             self.wp_list[device][room][sub]['state'] = int(float(v))
                             if sub == 'target_temp':
@@ -1377,7 +1415,7 @@ class Kocom(rs485):
                         mode_prefix = THERMOSTAT_ACTIVE_PREFIX
                     p_value += mode_prefix
                     p_value += '{0:02x}'.format(int(float(target_temp)))
-                    p_value += KOCOM_THERMOSTAT_FAN_MODE_REV.get(fan_mode, '00')
+                    p_value += encode_thermostat_fan_mode(fan_mode, mode_key) or encode_thermostat_fan_mode(get_default_thermostat_fan_mode(mode_key), mode_key)
                     p_value += '00000000'
                 except:
                     logger.debug('[Make Packet] Error on DEVICE_THERMOSTAT')
@@ -1432,7 +1470,7 @@ class Kocom(rs485):
         thermo['current_temp'] = int(value[8:10], 16)
         thermo['away_mode'] = away_mode
         thermo['mode'] = hvac_mode if hvac_mode != 'off' else 'off'
-        thermo['fan_mode'] = KOCOM_THERMOSTAT_FAN_MODE.get(value[6:8], 'auto')
+        thermo['fan_mode'] = parse_thermostat_fan_mode(value[6:8], thermo['mode'])
 
         try:
             target_temp = int(value[4:6], 16)
@@ -1826,9 +1864,10 @@ if __name__ == '__main__':
     #logger 인스턴스 생성 및 로그레벨 설정
     logger = logging.getLogger(CONF_LOGNAME)
     logger.setLevel(logging.INFO)
+    CONF_LOGLEVEL = str(CONF_LOGLEVEL).lower()
     if CONF_LOGLEVEL == "info": logger.setLevel(logging.INFO)
     if CONF_LOGLEVEL == "debug": logger.setLevel(logging.DEBUG)
-    if CONF_LOGLEVEL == "warn": logger.setLevel(logging.WARN)
+    if CONF_LOGLEVEL in ("warn", "warning"): logger.setLevel(logging.WARN)
 
     # formatter 생성
     logFormatter = logging.Formatter('%(asctime)s - %(name)s - %(levelname)s : Line %(lineno)s - %(message)s')
