@@ -222,7 +222,7 @@ KOCOM_COMMAND               = {'3a': '조회', '00': '상태', '01': 'on', '02':
 KOCOM_TYPE                  = {'30b': 'send', '30d': 'ack'}
 KOCOM_FAN_SPEED             = {'4': 'low', '8': 'medium', 'c': 'high', '0': 'off'}
 KOCOM_THERMOSTAT_HEAT_FAN_MODE = {'00': 'auto', '04': 'low', '08': 'medium', '0c': 'high'}
-KOCOM_THERMOSTAT_FAN_MODE   = {'01': 'LOW', '02': 'MEDIUM', '03': 'HIGH'}
+KOCOM_THERMOSTAT_FAN_MODE   = {'00': 'LOW', '01': 'MEDIUM', '02': 'HIGH'}
 THERMOSTAT_FAN_MODE_MAX_PENDING_COUNT = 4
 FAN_PERCENTAGE_TO_SPEED     = {'0': 'off', '1': 'low', '2': 'medium', '3': 'high'}
 FAN_SPEED_TO_PERCENTAGE     = {'off': 0, 'low': 1, 'medium': 2, 'high': 3}
@@ -265,6 +265,13 @@ def normalize_thermostat_fan_mode(fan_mode, mode=None):
 
 def parse_thermostat_fan_mode(code, mode=None):
     return get_thermostat_fan_mode_map(mode).get(code, get_default_thermostat_fan_mode(mode))
+
+
+def get_thermostat_fan_mode_code(value, mode=None):
+    if mode == 'cool':
+        # 에어컨 상태 패킷은 두 번째 바이트(11 xx ...)에 풍량을 싣습니다.
+        return value[2:4]
+    return value[6:8]
 
 
 def encode_thermostat_fan_mode(fan_mode, mode=None):
@@ -769,9 +776,6 @@ class Kocom(rs485):
                     if self.wp_list[device][room]['mode']['set'] == 'off':
                         self.wp_list[device][room]['mode']['set'] = get_thermostat_active_mode()
                         self.wp_list[device][room]['mode']['last'] = 'set'
-                    if not thermostat_supports_away_mode():
-                        self.wp_list[device][room]['away_mode']['set'] = 'off'
-                        self.wp_list[device][room]['away_mode']['last'] = 'set'
                 else:
                     self.wp_list[device][room]['target_temp']['set'] = int(float(payload))
                     self.wp_list[device][room]['target_temp']['last'] = 'set'
@@ -1413,10 +1417,17 @@ class Kocom(rs485):
                         mode_prefix = THERMOSTAT_AWAY_PREFIX
                     else:
                         mode_prefix = THERMOSTAT_ACTIVE_PREFIX
-                    p_value += mode_prefix
-                    p_value += '{0:02x}'.format(int(float(target_temp)))
-                    p_value += encode_thermostat_fan_mode(fan_mode, mode_key) or encode_thermostat_fan_mode(get_default_thermostat_fan_mode(mode_key), mode_key)
-                    p_value += '00000000'
+                    fan_mode_code = encode_thermostat_fan_mode(fan_mode, mode_key) or encode_thermostat_fan_mode(get_default_thermostat_fan_mode(mode_key), mode_key)
+                    target_temp_code = '{0:02x}'.format(int(float(target_temp)))
+                    if mode_key == 'cool' and mode_key != 'off':
+                        # 에어컨은 난방과 달리 풍량이 목표온도 뒤가 아니라
+                        # ON 바이트(11) 바로 뒤에 들어갑니다: 11 <fan> <temp> 00 ...
+                        p_value += '11' + fan_mode_code + target_temp_code + '0000000000'
+                    else:
+                        p_value += mode_prefix
+                        p_value += target_temp_code
+                        p_value += fan_mode_code
+                        p_value += '00000000'
                 except:
                     logger.debug('[Make Packet] Error on DEVICE_THERMOSTAT')
             elif device == DEVICE_FAN:
@@ -1470,7 +1481,7 @@ class Kocom(rs485):
         thermo['current_temp'] = int(value[8:10], 16)
         thermo['away_mode'] = away_mode
         thermo['mode'] = hvac_mode if hvac_mode != 'off' else 'off'
-        thermo['fan_mode'] = parse_thermostat_fan_mode(value[6:8], thermo['mode'])
+        thermo['fan_mode'] = parse_thermostat_fan_mode(get_thermostat_fan_mode_code(value, thermo['mode']), thermo['mode'])
 
         try:
             target_temp = int(value[4:6], 16)
