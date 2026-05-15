@@ -28,6 +28,37 @@ SW_VERSION = 'RS485 Compilation 1.0.8'
 # Log Level
 CONF_LOGLEVEL = 'info' # debug, info, warn
 
+
+def normalize_log_level(level):
+    """Normalize add-on log level options such as DEBUG/debug/Debug."""
+    level = str(level).strip().lower()
+    if level in ('debug', 'info', 'warn', 'warning', 'error'):
+        return 'warn' if level == 'warning' else level
+    return 'info'
+
+
+def apply_log_level(level):
+    """Apply the configured log level to every logger/handler used by this add-on."""
+    normalized = normalize_log_level(level)
+    py_level = {
+        'debug': logging.DEBUG,
+        'info': logging.INFO,
+        'warn': logging.WARN,
+        'error': logging.ERROR,
+    }[normalized]
+
+    logging.getLogger().setLevel(py_level)
+    for handler in logging.getLogger().handlers:
+        handler.setLevel(py_level)
+
+    for log_name in (__name__, CONF_LOGNAME):
+        target_logger = logging.getLogger(log_name)
+        target_logger.setLevel(py_level)
+        for handler in target_logger.handlers:
+            handler.setLevel(py_level)
+
+    return normalized
+
 ###############################################################################################################
 ################################################## K O C O M ##################################################
 # 본인에 맞게 수정하세요
@@ -127,7 +158,7 @@ THERMOSTAT_PREFIX_TO_MODE = {
     THERMOSTAT_OFF_PREFIX: 'off',
 }
 # 환풍기 초기속도 ['low', 'medium', 'high']
-# DEFAULT_SPEED = 'medium' #주석처리 @241119 simon
+DEFAULT_SPEED = 'medium' # 기본값, 애드온 옵션 Advanced.DEFAULT_SPEED 로 변경
 # 조명 / 플러그 갯수
 KOCOM_LIGHT_SIZE            = {'Livingroom': 3, 'Bedroom': 1, 'Kitchen': 2, 'room2': 0, 'room3': 0} # @241119 simon
 KOCOM_PLUG_SIZE             = {'livingroom': 2, 'bedroom': 2, 'room1': 2, 'room2': 2, 'kitchen': 2}
@@ -159,7 +190,7 @@ if os.path.isfile(option_file):
         SCAN_INTERVAL = json_data['Advanced']['SCAN_INTERVAL']
         SCANNING_INTERVAL = json_data['Advanced']['SCANNING_INTERVAL']
         DEFAULT_SPEED = json_data['Advanced']['DEFAULT_SPEED']
-        CONF_LOGLEVEL = json_data['Advanced']['LOGLEVEL']
+        CONF_LOGLEVEL = normalize_log_level(json_data['Advanced']['LOGLEVEL'])
         if 'THERMOSTAT_DEFAULT_MODE' in json_data['Advanced']:
             THERMOSTAT_DEFAULT_MODE = _normalize_thermostat_mode(json_data['Advanced']['THERMOSTAT_DEFAULT_MODE'])
         KOCOM_LIGHT_SIZE = {}
@@ -222,6 +253,8 @@ KOCOM_COMMAND               = {'3a': '조회', '00': '상태', '01': 'on', '02':
 KOCOM_TYPE                  = {'30b': 'send', '30d': 'ack'}
 KOCOM_FAN_SPEED             = {'4': 'low', '8': 'medium', 'c': 'high', '0': 'off'}
 KOCOM_THERMOSTAT_FAN_MODE   = {'00': 'auto', '04': 'low', '08': 'medium', '0c': 'high'}
+KOCOM_AC_MODE                = {'00': 'cool', '01': 'fan_only', '02': 'dry', '03': 'auto'}
+KOCOM_AC_FAN_MODE            = {'00': 'auto', '01': 'low', '02': 'medium', '03': 'high'}
 THERMOSTAT_FAN_MODE_MAX_PENDING_COUNT = 4
 FAN_PERCENTAGE_TO_SPEED     = {'0': 'off', '1': 'low', '2': 'medium', '3': 'high'}
 FAN_SPEED_TO_PERCENTAGE     = {'off': 0, 'low': 1, 'medium': 2, 'high': 3}
@@ -232,6 +265,7 @@ KOCOM_COMMAND_REV           = {v: k for k, v in KOCOM_COMMAND.items()}
 KOCOM_TYPE_REV              = {v: k for k, v in KOCOM_TYPE.items()}
 KOCOM_FAN_SPEED_REV         = {v: k for k, v in KOCOM_FAN_SPEED.items()}
 KOCOM_THERMOSTAT_FAN_MODE_REV = {v: k for k, v in KOCOM_THERMOSTAT_FAN_MODE.items()}
+KOCOM_AC_FAN_MODE_REV       = {v: k for k, v in KOCOM_AC_FAN_MODE.items()}
 KOCOM_ROOM_REV[DEVICE_WALLPAD] = '00'
 
 # KOCOM TIME 변수
@@ -619,10 +653,8 @@ class Kocom(rs485):
 
         if 'config' in _topic and _topic[0] == 'rs485' and _topic[1] == 'bridge' and _topic[2] == 'config':
             if _topic[3] == 'log_level':
-                if _payload == "info": logger.setLevel(logging.INFO)
-                if _payload == "debug": logger.setLevel(logging.DEBUG)
-                if _payload == "warn": logger.setLevel(logging.WARN)
-                logger.info('[From HA]Set Loglevel to {}'.format(_payload))
+                applied_level = apply_log_level(_payload)
+                logger.info('[From HA]Set Loglevel to {}'.format(applied_level))
                 return
             elif _topic[3] == 'restart':
                 self.homeassistant_device_discovery()
@@ -1369,18 +1401,31 @@ class Kocom(rs485):
                     away_key = str(away_mode).lower()
                     if str(mode).lower() != mode_key:
                         self.wp_list[device][room]['mode']['set'] = mode_key
-                    if mode_key == 'off':
-                        mode_prefix = THERMOSTAT_OFF_PREFIX
-                    elif mode_key == 'heat' and thermostat_supports_away_mode() and away_key == 'on':
-                        mode_prefix = THERMOSTAT_AWAY_PREFIX
+                    if mode_key == 'cool':
+                        current_temp = self.wp_list[device][room]['current_temp']['state']
+                        # Cooling-capable Kocom AC packets keep fan speed at value[4:6]
+                        # and target temperature at value[10:12], matching the legacy
+                        # ac_parse() layout: 10 + mode + fan + reserved + current + target.
+                        p_value += '10'
+                        p_value += '00'
+                        p_value += KOCOM_AC_FAN_MODE_REV.get(fan_mode, '02')
+                        p_value += '00'
+                        p_value += '{0:02x}'.format(int(float(current_temp)))
+                        p_value += '{0:02x}'.format(int(float(target_temp)))
+                        p_value += '0000'
                     else:
-                        mode_prefix = THERMOSTAT_ACTIVE_PREFIX
-                    p_value += mode_prefix
-                    p_value += '{0:02x}'.format(int(float(target_temp)))
-                    p_value += KOCOM_THERMOSTAT_FAN_MODE_REV.get(fan_mode, '00')
-                    p_value += '00000000'
-                except:
-                    logger.debug('[Make Packet] Error on DEVICE_THERMOSTAT')
+                        if mode_key == 'off':
+                            mode_prefix = THERMOSTAT_OFF_PREFIX
+                        elif mode_key == 'heat' and thermostat_supports_away_mode() and away_key == 'on':
+                            mode_prefix = THERMOSTAT_AWAY_PREFIX
+                        else:
+                            mode_prefix = THERMOSTAT_ACTIVE_PREFIX
+                        p_value += mode_prefix
+                        p_value += '{0:02x}'.format(int(float(target_temp)))
+                        p_value += KOCOM_THERMOSTAT_FAN_MODE_REV.get(fan_mode, '00')
+                        p_value += '00000000'
+                except Exception as e:
+                    logger.debug('[Make Packet] Error on DEVICE_THERMOSTAT: {}'.format(e))
             elif device == DEVICE_FAN:
                 try:
                     mode = self.wp_list[device][room]['mode']['set']
@@ -1419,6 +1464,20 @@ class Kocom(rs485):
 
     def parse_thermostat(self, value='0000000000000000', init_temp=False):
         thermo = {}
+        if get_thermostat_active_mode() == 'cool' and value[:2] == '10':
+            ac_mode = KOCOM_AC_MODE.get(value[2:4])
+            thermo['current_temp'] = int(value[8:10], 16)
+            thermo['away_mode'] = 'off'
+            thermo['mode'] = ac_mode if ac_mode == 'cool' else get_thermostat_active_mode()
+            thermo['fan_mode'] = KOCOM_AC_FAN_MODE.get(value[4:6], 'auto')
+            try:
+                target_temp = int(value[10:12], 16)
+            except ValueError:
+                target_temp = 0
+            fallback_temp = int(init_temp) if init_temp else INIT_TEMP
+            thermo['target_temp'] = fallback_temp if target_temp == 0 else target_temp
+            return thermo
+
         mode_prefix = value[:4]
         mode_code = THERMOSTAT_PREFIX_TO_MODE.get(mode_prefix)
         away_mode = 'on' if thermostat_supports_away_mode() and (mode_code == 'away' or value[2:4] == '01') else 'off'
@@ -1825,10 +1884,7 @@ class Grex:
 if __name__ == '__main__':
     #logger 인스턴스 생성 및 로그레벨 설정
     logger = logging.getLogger(CONF_LOGNAME)
-    logger.setLevel(logging.INFO)
-    if CONF_LOGLEVEL == "info": logger.setLevel(logging.INFO)
-    if CONF_LOGLEVEL == "debug": logger.setLevel(logging.DEBUG)
-    if CONF_LOGLEVEL == "warn": logger.setLevel(logging.WARN)
+    CONF_LOGLEVEL = apply_log_level(CONF_LOGLEVEL)
 
     # formatter 생성
     logFormatter = logging.Formatter('%(asctime)s - %(name)s - %(levelname)s : Line %(lineno)s - %(message)s')
