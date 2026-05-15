@@ -139,6 +139,18 @@ def apply_pending_thermostat_fan_mode(room_state, payload):
     return payload
 
 
+def build_thermostat_ha_payload(room_state):
+    payload = {
+        'mode': room_state['mode']['set'],
+        'target_temp': room_state['target_temp']['set'],
+        'current_temp': room_state['current_temp']['state'],
+        'fan_mode': room_state['fan_mode']['set']
+    }
+    if thermostat_supports_away_mode():
+        payload['away_mode'] = room_state['away_mode']['set']
+    return payload
+
+
 # 기본 난방/냉방 모드 (애드온 옵션 Advanced.THERMOSTAT_DEFAULT_MODE 또는
 # 환경변수 THERMOSTAT_DEFAULT_MODE 로 변경 가능)
 # auto이면 5/1~10/1 전까지 cool, 10/1~다음해 5/1 전까지 heat로 자동 전환
@@ -773,13 +785,7 @@ class Kocom(rs485):
                     self.wp_list[device][room]['mode']['last'] = 'set'
                     self.wp_list[device][room]['away_mode']['set'] = 'off'
                     self.wp_list[device][room]['away_mode']['last'] = 'set'
-                ha_payload = {
-                    'mode': self.wp_list[device][room]['mode']['set'],
-                    'target_temp': self.wp_list[device][room]['target_temp']['set'],
-                    'current_temp': self.wp_list[device][room]['current_temp']['state'],
-                    'away_mode': self.wp_list[device][room]['away_mode']['set'] if thermostat_supports_away_mode() else 'off',
-                    'fan_mode': self.wp_list[device][room]['fan_mode']['set']
-                }
+                ha_payload = build_thermostat_ha_payload(self.wp_list[device][room])
                 logger.info('[From HA]{}/{}/set = [mode={}, target_temp={}, away_mode={}, fan_mode={}]'.format(
                     device,
                     room,
@@ -1401,18 +1407,20 @@ class Kocom(rs485):
                     away_key = str(away_mode).lower()
                     if str(mode).lower() != mode_key:
                         self.wp_list[device][room]['mode']['set'] = mode_key
-                    if mode_key == 'cool':
+                    if get_thermostat_active_mode() == 'cool' and mode_key in ('cool', 'off'):
                         current_temp = self.wp_list[device][room]['current_temp']['state']
-                        # Cooling-capable Kocom AC packets keep fan speed at value[4:6]
-                        # and target temperature at value[10:12], matching the legacy
-                        # ac_parse() layout: 10 + mode + fan + reserved + current + target.
-                        p_value += '10'
-                        p_value += '00'
-                        p_value += KOCOM_AC_FAN_MODE_REV.get(fan_mode, '02')
-                        p_value += '00'
-                        p_value += '{0:02x}'.format(int(float(current_temp)))
+                        # AC-enabled Kocom thermostat packets report/send power in the
+                        # first byte (11=on, 00=off), cooling mode in the second byte,
+                        # target temperature in byte 3, fan mode in byte 4, and current
+                        # temperature in byte 5.  Do not use the heating away-mode
+                        # prefix (1101) as a special state while the active HVAC mode is
+                        # cool; on the AC packet family that byte pattern means cool on.
+                        p_value += '11' if mode_key == 'cool' else '00'
+                        p_value += '01'
                         p_value += '{0:02x}'.format(int(float(target_temp)))
-                        p_value += '0000'
+                        p_value += KOCOM_THERMOSTAT_FAN_MODE_REV.get(fan_mode, '00')
+                        p_value += '{0:02x}'.format(int(float(current_temp)))
+                        p_value += '000000'
                     else:
                         if mode_key == 'off':
                             mode_prefix = THERMOSTAT_OFF_PREFIX
@@ -1464,19 +1472,34 @@ class Kocom(rs485):
 
     def parse_thermostat(self, value='0000000000000000', init_temp=False):
         thermo = {}
-        if get_thermostat_active_mode() == 'cool' and value[:2] == '10':
-            ac_mode = KOCOM_AC_MODE.get(value[2:4])
-            thermo['current_temp'] = int(value[8:10], 16)
-            thermo['away_mode'] = 'off'
-            thermo['mode'] = ac_mode if ac_mode == 'cool' else get_thermostat_active_mode()
-            thermo['fan_mode'] = KOCOM_AC_FAN_MODE.get(value[4:6], 'auto')
-            try:
-                target_temp = int(value[10:12], 16)
-            except ValueError:
-                target_temp = 0
+        if get_thermostat_active_mode() == 'cool':
             fallback_temp = int(init_temp) if init_temp else INIT_TEMP
-            thermo['target_temp'] = fallback_temp if target_temp == 0 else target_temp
-            return thermo
+            # Current Kocom AC packets use the same 8-byte thermostat value,
+            # but encode power as 11/00 and AC mode as 01.  Example from the
+            # wallpad: 110117001b000000 = cool on, target 23, current 27;
+            # 000117001b000000 = off with the same set/current temperatures.
+            if value[:2] in ('11', '00') and value[2:4] == '01':
+                thermo['current_temp'] = int(value[8:10], 16)
+                thermo['mode'] = 'cool' if value[:2] == '11' else 'off'
+                thermo['fan_mode'] = KOCOM_THERMOSTAT_FAN_MODE.get(value[6:8], 'auto')
+                try:
+                    target_temp = int(value[4:6], 16)
+                except ValueError:
+                    target_temp = 0
+                thermo['target_temp'] = fallback_temp if target_temp == 0 else target_temp
+                return thermo
+
+            if value[:2] == '10':
+                ac_mode = KOCOM_AC_MODE.get(value[2:4])
+                thermo['current_temp'] = int(value[8:10], 16)
+                thermo['mode'] = ac_mode if ac_mode == 'cool' else get_thermostat_active_mode()
+                thermo['fan_mode'] = KOCOM_AC_FAN_MODE.get(value[4:6], 'auto')
+                try:
+                    target_temp = int(value[10:12], 16)
+                except ValueError:
+                    target_temp = 0
+                thermo['target_temp'] = fallback_temp if target_temp == 0 else target_temp
+                return thermo
 
         mode_prefix = value[:4]
         mode_code = THERMOSTAT_PREFIX_TO_MODE.get(mode_prefix)

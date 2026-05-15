@@ -156,9 +156,9 @@ THERMOSTAT_DEFAULT_MODE: auto // 난방/냉방 기본 모드 (auto, heat, cool)
 ```
 THERMOSTAT_DEFAULT_MODE가 `auto`이면 5/1 00:00부터 10/1 00:00 전까지는 `cool`, 10/1 00:00부터 다음해 5/1 00:00 전까지는 `heat`로 자동 전환됩니다. `auto` 사용 시 Home Assistant의 난방/냉방/꺼짐 선택지는 현재 계절의 활성 모드와 `off`만 표시되므로, 냉방 기간에는 `cool`/`off`, 난방 기간에는 `heat`/`off`만 노출됩니다. 수동으로 `heat` 또는 `cool`을 고정하면 해당 모드와 `off`만 노출됩니다.
 
-냉방 모드에서는 Home Assistant climate의 `fan_mode`로 에어컨 풍량(`auto`, `low`, `medium`, `high`)을 함께 제어할 수 있습니다. 환풍기 fan 엔티티는 최신 Home Assistant MQTT fan 방식에 맞춰 percentage 기반 풍량(0=꺼짐, 1=low, 2=medium, 3=high)도 지원합니다.
+냉방 모드에서는 Home Assistant climate의 `fan_mode`로 에어컨 풍량(`auto`, `low`, `medium`, `high`)을 함께 제어할 수 있습니다. 냉방용 에어컨 패킷은 난방 외출모드와 별개로 `11 01 ...` 형식을 켜짐, `00 01 ...` 형식을 꺼짐으로 사용하며, Home Assistant 상태 payload와 MQTT discovery에는 `away_mode`를 노출하지 않습니다. 환풍기 fan 엔티티는 최신 Home Assistant MQTT fan 방식에 맞춰 percentage 기반 풍량(0=꺼짐, 1=low, 2=medium, 3=high)도 지원합니다.
 
-MQTT 기기에서는 난방(`heat`) 모드에서만 `away_mode` 토픽(`/homeassistant/climate/<방이름>/away_mode`)을 통해 외출모드를 직접 제어할 수 있습니다. 냉방(`cool`) 모드에서는 코콤 외출모드를 사용하지 않으므로 discovery에 외출모드를 노출하지 않고, `away_mode: on` 상태도 `off`로 보정합니다. 난방 중 `on` 으로 전송하면 월패드가 외출모드(기본 설정 온도 유지)로 동작하고, `off` 로 전환하면 일반 난방 모드로 복귀합니다.
+MQTT 기기에서는 난방(`heat`) 모드에서만 `away_mode` 토픽(`/homeassistant/climate/<방이름>/away_mode`)을 통해 외출모드를 직접 제어할 수 있습니다. 냉방(`cool`) 모드에서는 코콤 외출모드를 사용하지 않으므로 discovery와 상태 payload에 외출모드를 노출하지 않습니다. 난방 중 `on` 으로 전송하면 월패드가 외출모드(기본 설정 온도 유지)로 동작하고, `off` 로 전환하면 일반 난방 모드로 복귀합니다.
 
 ### Option `KOCOM_LIGHT_SIZE` (optional)
 name은 방이름, number는 조명 개수. 본인의 집 수량만큼 추가 가능.
