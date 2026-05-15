@@ -88,6 +88,26 @@ def coerce_thermostat_mode(mode):
     return get_thermostat_active_mode()
 
 
+def get_pending_thermostat_fan_mode(room_state):
+    fan_state = room_state.get('fan_mode')
+    if not isinstance(fan_state, dict):
+        return None
+
+    last = fan_state.get('last')
+    if last == 'set' or isinstance(last, float):
+        if fan_state.get('count', 0) <= THERMOSTAT_FAN_MODE_MAX_PENDING_COUNT:
+            return fan_state.get('set')
+    return None
+
+
+def apply_pending_thermostat_fan_mode(room_state, payload):
+    pending_fan_mode = get_pending_thermostat_fan_mode(room_state)
+    if pending_fan_mode in KOCOM_THERMOSTAT_FAN_MODE_REV:
+        payload = payload.copy()
+        payload['fan_mode'] = pending_fan_mode
+    return payload
+
+
 # 기본 난방/냉방 모드 (애드온 옵션 Advanced.THERMOSTAT_DEFAULT_MODE 또는
 # 환경변수 THERMOSTAT_DEFAULT_MODE 로 변경 가능)
 # auto이면 5/1~10/1 전까지 cool, 10/1~다음해 5/1 전까지 heat로 자동 전환
@@ -202,6 +222,7 @@ KOCOM_COMMAND               = {'3a': '조회', '00': '상태', '01': 'on', '02':
 KOCOM_TYPE                  = {'30b': 'send', '30d': 'ack'}
 KOCOM_FAN_SPEED             = {'4': 'low', '8': 'medium', 'c': 'high', '0': 'off'}
 KOCOM_THERMOSTAT_FAN_MODE   = {'00': 'auto', '04': 'low', '08': 'medium', '0c': 'high'}
+THERMOSTAT_FAN_MODE_MAX_PENDING_COUNT = 4
 FAN_PERCENTAGE_TO_SPEED     = {'0': 'off', '1': 'low', '2': 'medium', '3': 'high'}
 FAN_SPEED_TO_PERCENTAGE     = {'off': 0, 'low': 1, 'medium': 2, 'high': 3}
 KOCOM_DEVICE_REV            = {v: k for k, v in KOCOM_DEVICE.items()}
@@ -1172,7 +1193,10 @@ class Kocom(rs485):
                     self.send_to_homeassistant(v['src_device'], DEVICE_WALLPAD, v['value'])
                 elif v['src_device'] == DEVICE_THERMOSTAT or v['src_device'] == DEVICE_LIGHT or v['src_device'] == DEVICE_PLUG:
                     self.set_list(v['src_device'], v['src_room'], v['value'])
-                    self.send_to_homeassistant(v['src_device'], v['src_room'], v['value'])
+                    ha_value = v['value']
+                    if v['src_device'] == DEVICE_THERMOSTAT:
+                        ha_value = apply_pending_thermostat_fan_mode(self.wp_list[v['src_device']][v['src_room']], v['value'])
+                    self.send_to_homeassistant(v['src_device'], v['src_room'], ha_value)
         except:
             logger.info('[{} {}]Error {}'.format(from_to, name, packet))
 
