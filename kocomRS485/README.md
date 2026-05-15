@@ -57,7 +57,7 @@ Advanced:
   SCANNING_INTERVAL: 0.8
   DEFAULT_SPEED: medium
   LOGLEVEL: info
-  THERMOSTAT_DEFAULT_MODE: heat
+  THERMOSTAT_DEFAULT_MODE: auto
 KOCOM_LIGHT_SIZE:
   - name: livingroom
     number: 3
@@ -152,8 +152,10 @@ SCAN_INTERVAL: 300      // 월패드의 상태값 조회 간격
 SCANNING_INTERVAL: 0.5  // 상태값 조회 시 패킷전송 간격
 DEFAULT_SPEED: medium   //환풍기 초기속도 low, medium, high
 LOGLEVEL: info , debug, info, warn 중에 하나
-THERMOSTAT_DEFAULT_MODE: heat // 난방/냉방 기본 모드 (heat 혹은 cool)
+THERMOSTAT_DEFAULT_MODE: auto // 난방/냉방 기본 모드 (auto, heat, cool)
 ```
+THERMOSTAT_DEFAULT_MODE가 `auto`이면 5/1 00:00부터 10/1 00:00 전까지는 `cool`, 10/1 00:00부터 다음해 5/1 00:00 전까지는 `heat`로 자동 전환됩니다.
+
 MQTT 기기에서는 `away_mode` 토픽(`/homeassistant/climate/<방이름>/away_mode`)을 통해 외출모드를 직접 제어할 수 있습니다. `on` 으로 전송하면 월패드가 외출모드(기본 설정 온도 유지)로 동작하고, `off` 로 전환하면 일반 난방/냉방 모드로 복귀합니다.
 
 ### Option `KOCOM_LIGHT_SIZE` (optional)
